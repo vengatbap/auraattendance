@@ -28,7 +28,7 @@ async function main() {
       organizationId: organization.id,
       email: "admin@aura.com",
       passwordHash,
-      name: "Super Admin",
+      name: "Master",
       role: "super_admin",
     });
     console.log("Super Admin created successfully (admin@aura.com / admin123)");

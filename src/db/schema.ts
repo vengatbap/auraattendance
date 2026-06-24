@@ -25,9 +25,23 @@ export const users = pgTable("users", {
   index("users_organization_id_idx").on(table.organizationId),
 ]);
 
+export const projects = pgTable("projects", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  status: varchar("status", { length: 50 }).notNull().default("active"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  deletedAt: timestamp("deleted_at"),
+}, (table) => [
+  index("projects_organization_id_idx").on(table.organizationId),
+]);
+
 export const sites = pgTable("sites", {
   id: uuid("id").primaryKey().defaultRandom(),
   organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
   name: varchar("name", { length: 255 }).notNull(),
   latitude: doublePrecision("latitude").notNull(),
   longitude: doublePrecision("longitude").notNull(),
@@ -38,6 +52,7 @@ export const sites = pgTable("sites", {
   deletedAt: timestamp("deleted_at"),
 }, (table) => [
   index("sites_organization_id_idx").on(table.organizationId),
+  index("sites_project_id_idx").on(table.projectId),
 ]);
 
 export const employees = pgTable("employees", {
@@ -193,6 +208,17 @@ export const attendanceLogRelations = relations(attendanceLogs, ({ one }) => ({
   }),
 }));
 
-export const siteRelations = relations(sites, ({ many }) => ({
-  attendanceLogs: many(attendanceLogs),
+export const projectRelations = relations(projects, ({ many }) => ({
+  sites: many(sites),
 }));
+
+export const siteRelations = relations(sites, ({ one, many }) => ({
+  attendanceLogs: many(attendanceLogs),
+  project: one(projects, {
+    fields: [sites.projectId],
+    references: [projects.id],
+  }),
+}));
+
+
+

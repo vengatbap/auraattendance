@@ -62,9 +62,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ matched: false, error: "Active employee not found" }, { status: 404 });
     }
 
-    if (matchedSite && employee.siteId && employee.siteId !== matchedSite.id) {
-      return NextResponse.json({ error: "Employee is not assigned to this site" }, { status: 403 });
-    }
+    // Employee can now punch in at any valid site.
+    // if (matchedSite && employee.siteId && employee.siteId !== matchedSite.id) {
+    //   return NextResponse.json({ error: "Employee is not assigned to this site" }, { status: 403 });
+    // }
 
     const today = toDateString();
     const [existing] = await db

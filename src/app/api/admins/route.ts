@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getSession } from "@/lib/auth";
 import { db } from "@/db";
 import { users } from "@/db/schema";
 import bcrypt from "bcryptjs";
@@ -14,7 +15,18 @@ const CreateAdminSchema = z.object({
 
 export async function GET() {
   try {
-    const admins = await db.select().from(users);
+    const session = await getSession();
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    let admins;
+    if (session.role === "super_admin") {
+      admins = await db.select().from(users);
+    } else {
+      // Hide super_admins from non-super_admins
+      admins = await db.select().from(users).where(eq(users.role, "admin"));
+    }
     return NextResponse.json(admins);
   } catch (error) {
     return NextResponse.json({ error: "Failed to fetch admins" }, { status: 500 });
@@ -31,6 +43,16 @@ export async function POST(req: NextRequest) {
     }
 
     const { email, name, password, role } = result.data;
+
+    const session = await getSession();
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Prevent regular admins from creating super_admins
+    if (session.role !== "super_admin" && role === "super_admin") {
+      return NextResponse.json({ error: "Forbidden: Cannot create super admin" }, { status: 403 });
+    }
 
     // Check if admin already exists
     const existingAdmin = await db.select().from(users).where(eq(users.email, email)).limit(1);
