@@ -9,7 +9,6 @@ const protectedRoutes = [
   "/sites",
   "/reports",
   "/settings",
-  "/attendance-records",
 ];
 
 const protectedApiRoutes = [
@@ -20,9 +19,24 @@ const protectedApiRoutes = [
   "/api/reports",
   "/api/settings",
   "/api/audit-logs",
+  "/api/attendance",
+  "/api/attendance/adjust",
+  "/api/attendance/checkin",
+  "/api/attendance/checkout",
+  "/api/attendance/punch",
+  "/api/attendance/recognize",
+  "/api/faces",
+  "/api/faces/register",
+  "/api/faces/[id]",
+  "/api/auth/me",
+  "/api/attendance/summary",
 ];
 
-export async function proxy(request: NextRequest) {
+const publicApiRoutes = [
+  "/api/attendance/punch",
+];
+
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const sessionCookie = request.cookies.get(SESSION_COOKIE_NAME);
   let session = null;
@@ -41,7 +55,9 @@ export async function proxy(request: NextRequest) {
   }
 
   const isProtectedApiRoute = protectedApiRoutes.some((route) => pathname.startsWith(route));
-  if (isProtectedApiRoute && !session) {
+  const isPublicApiRoute = publicApiRoutes.includes(pathname) || (pathname === "/api/sites" && request.method === "GET");
+
+  if (isProtectedApiRoute && !isPublicApiRoute && !session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
