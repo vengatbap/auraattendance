@@ -308,12 +308,14 @@ export default function AttendancePunchPage() {
 							<div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 sm:px-6">
 								<div>
 									<p className="text-sm font-bold">Mark attendance</p>
-									<p className="mt-0.5 text-xs text-slate-500">
+									<p className="mt-0.5 text-xs text-slate-500" suppressHydrationWarning>
 										{now.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
+										<time dateTime={now.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })} suppressHydrationWarning />
+
 									</p>
 								</div>
 								<div className="flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1.5 font-mono text-xs font-semibold text-slate-700" suppressHydrationWarning={true} >
-									<Clock3 className="size-3.5" />
+									<Clock3 className="size-3.5" suppressHydrationWarning={true} />
 									{now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
 								</div>
 							</div>
@@ -374,12 +376,14 @@ export default function AttendancePunchPage() {
 								</div>
 
 								<div className="mt-4 grid gap-3 sm:grid-cols-2">
+
 									<StatusCard
 										active={isInsideGeofence}
 										loading={locationBusy}
 										title={locationBusy ? "Locating you…" : isInsideGeofence ? "Inside attendance zone" : "Outside attendance zones"}
 										detail={nearestSite ? `${nearestSite.name} · ${Math.round(nearestSite.distance)}m away · saves as unknown` : "Will save as unknown location"}
 									/>
+
 									<div className="rounded-2xl border border-slate-200 bg-slate-50 p-3.5">
 										<div className="flex items-start gap-3">
 											<div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-white text-slate-700 shadow-sm">
