@@ -6,6 +6,47 @@ export const organizations = pgTable("organizations", {
   name: varchar("name", { length: 255 }).notNull(),
   slug: varchar("slug", { length: 120 }).notNull().unique(),
   status: varchar("status", { length: 50 }).notNull().default("active"),
+  logo: text("logo"),
+  favicon: text("favicon"),
+  primaryColor: varchar("primary_color", { length: 50 }).notNull().default("#2563eb"),
+  secondaryColor: varchar("secondary_color", { length: 50 }).notNull().default("#4f46e5"),
+  loginBackground: text("login_background"),
+  sidebarLogo: text("sidebar_logo"),
+  companyName: varchar("company_name", { length: 255 }),
+  supportEmail: varchar("support_email", { length: 255 }),
+  timezone: varchar("timezone", { length: 100 }).notNull().default("UTC"),
+  language: varchar("language", { length: 10 }).notNull().default("en"),
+  dateFormat: varchar("date_format", { length: 50 }).notNull().default("YYYY-MM-DD"),
+  isOnboarded: boolean("is_onboarded").notNull().default(false),
+  subscriptionPlan: varchar("subscription_plan", { length: 50 }).notNull().default("trial"),
+  trialEndsAt: timestamp("trial_ends_at"),
+  featureFlags: jsonb("feature_flags").default({
+    face: true,
+    gps: true,
+    qr: false,
+    offline: true,
+    adjustments: true,
+    reports: true,
+    analytics: true
+  }),
+  // Attendance configurations
+  attendanceMode: varchar("attendance_mode", { length: 50 }).notNull().default("face_gps"),
+  allowMultiplePunches: boolean("allow_multiple_punches").notNull().default(true),
+  minimumPunchGapMinutes: integer("minimum_punch_gap_minutes").notNull().default(30),
+  autoCheckout: boolean("auto_checkout").notNull().default(false),
+  autoCheckoutTime: varchar("auto_checkout_time", { length: 5 }).notNull().default("23:59"),
+  gracePeriodMinutes: integer("grace_period_minutes").notNull().default(15),
+  lateAfterTime: varchar("late_after_time", { length: 5 }).notNull().default("09:15"),
+  // Face settings
+  faceMatchThreshold: doublePrecision("face_match_threshold").notNull().default(0.6),
+  faceLightingThreshold: doublePrecision("face_lighting_threshold").notNull().default(0.2),
+  faceMinSize: integer("face_min_size").notNull().default(110),
+  faceCaptureDelaySeconds: integer("face_capture_delay_seconds").notNull().default(2),
+  faceRetryAttempts: integer("face_retry_attempts").notNull().default(3),
+  // Future integrations
+  smtpSettings: jsonb("smtp_settings"),
+  whatsappEnabled: boolean("whatsapp_enabled").notNull().default(false),
+  smsEnabled: boolean("sms_enabled").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
   deletedAt: timestamp("deleted_at"),
@@ -18,11 +59,38 @@ export const users = pgTable("users", {
   passwordHash: text("password_hash").notNull(),
   role: varchar("role", { length: 50 }).notNull().default("admin"), // "super_admin", "admin"
   name: varchar("name", { length: 255 }).notNull(),
+  resetPasswordToken: text("reset_password_token"),
+  resetPasswordExpiresAt: timestamp("reset_password_expires_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
   deletedAt: timestamp("deleted_at"),
 }, (table) => [
   index("users_organization_id_idx").on(table.organizationId),
+]);
+
+export const userInvitations = pgTable("user_invitations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  email: varchar("email", { length: 255 }).notNull(),
+  token: text("token").notNull().unique(),
+  status: varchar("status", { length: 50 }).notNull().default("pending"), // "pending", "accepted", "expired"
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("user_invitations_organization_id_idx").on(table.organizationId),
+]);
+
+export const loginHistory = pgTable("login_history", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }),
+  ipAddress: varchar("ip_address", { length: 100 }),
+  userAgent: text("user_agent"),
+  status: varchar("status", { length: 50 }).notNull(), // "success", "failed"
+  timestamp: timestamp("timestamp").defaultNow().notNull(),
+}, (table) => [
+  index("login_history_user_id_idx").on(table.userId),
+  index("login_history_organization_id_idx").on(table.organizationId),
 ]);
 
 export const projects = pgTable("projects", {

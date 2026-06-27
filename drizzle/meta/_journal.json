@@ -29,6 +29,13 @@
       "when": 1782339495839,
       "tag": "0003_worthless_shatterstar",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1782537058724,
+      "tag": "0004_sudden_meteorite",
+      "breakpoints": true
     }
   ]
 }

@@ -38,7 +38,7 @@ interface LocationReading {
 
 interface PunchResult {
 	action: "check_in" | "check_out" | "already_checked_out";
-	employee: { name: string; employeeNumber: string };
+	employee: { name: string; employeeCode: string };
 	site: { name: string };
 	faceScore: number;
 	distanceMeters: number | null;
@@ -76,6 +76,7 @@ export default function AttendancePunchPage() {
 	const [error, setError] = useState("");
 	const [result, setResult] = useState<PunchResult | null>(null);
 	const [now, setNow] = useState(() => new Date());
+	const [autoCaptureStatus, setAutoCaptureStatus] = useState<string>("");
 
 	const stopCamera = useCallback(() => {
 		streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -108,6 +109,26 @@ export default function AttendancePunchPage() {
 		}
 	}, []);
 
+	const startCamera = useCallback(async () => {
+		setError("");
+		setResult(null);
+		try {
+			const stream = await navigator.mediaDevices.getUserMedia({
+				video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 960 } },
+				audio: false,
+			});
+			streamRef.current = stream;
+			if (videoRef.current) {
+				videoRef.current.srcObject = stream;
+				await videoRef.current.play();
+			}
+			setStreaming(true);
+			void loadFaceModels().catch(() => setError("Face recognition models could not be loaded."));
+		} catch {
+			setError("Camera access is required to verify your identity. Please enable permissions.");
+		}
+	}, []);
+
 	useEffect(() => {
 		async function initialize() {
 			try {
@@ -122,12 +143,14 @@ export default function AttendancePunchPage() {
 
 		void initialize();
 		void requestLocation();
+		void startCamera(); // Auto start camera on load
+		
 		const clock = window.setInterval(() => setNow(new Date()), 1000);
 		return () => {
 			window.clearInterval(clock);
 			streamRef.current?.getTracks().forEach((track) => track.stop());
 		};
-	}, [requestLocation]);
+	}, [requestLocation, startCamera]);
 
 	const nearestSite = useMemo(() => {
 		if (!location || sites.length === 0) return null;
@@ -148,26 +171,6 @@ export default function AttendancePunchPage() {
 		nearestSite && nearestSite.distance <= nearestSite.radius
 	);
 
-	async function startCamera() {
-		setError("");
-		setResult(null);
-		try {
-			const stream = await navigator.mediaDevices.getUserMedia({
-				video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 960 } },
-				audio: false,
-			});
-			streamRef.current = stream;
-			if (videoRef.current) {
-				videoRef.current.srcObject = stream;
-				await videoRef.current.play();
-			}
-			setStreaming(true);
-			void loadFaceModels().catch(() => setError("Face recognition models could not be loaded."));
-		} catch {
-			setError("Camera access is required to verify your identity.");
-		}
-	}
-
 	function capturePhoto() {
 		const video = videoRef.current;
 		const canvas = canvasRef.current;
@@ -184,7 +187,7 @@ export default function AttendancePunchPage() {
 		const faceapi = await loadFaceModels();
 		const image = new Image();
 		image.src = photo;
-		await image.decode();
+		await new Promise((r) => { image.onload = r; });
 		const detection = await faceapi
 			.detectSingleFace(image)
 			.withFaceLandmarks()
@@ -203,10 +206,12 @@ export default function AttendancePunchPage() {
 		});
 	}
 
-	async function submitPunch() {
+	const submitPunch = useCallback(async () => {
 		setBusy(true);
 		setError("");
 		setResult(null);
+		setAutoCaptureStatus("");
+		
 		try {
 			const photo = capturePhoto();
 			if (!photo) throw new Error("The camera is not ready yet.");
@@ -239,16 +244,73 @@ export default function AttendancePunchPage() {
 			stopCamera();
 		} catch (caught) {
 			setError(caught instanceof Error ? caught.message : "Attendance failed.");
+			// Restart camera automatically if submission failed
+			if (!streamRef.current) {
+				void startCamera();
+			}
 		} finally {
 			setBusy(false);
 		}
-	}
+	}, [startCamera, stopCamera]);
+
+	const submitPunchRef = useRef(submitPunch);
+	submitPunchRef.current = submitPunch;
+
+	useEffect(() => {
+		if (!streaming || busy || result) {
+			setAutoCaptureStatus("");
+			return;
+		}
+
+		let active = true;
+		let holdStart: number | null = null;
+		
+		async function autoTrack() {
+			if (!active || !videoRef.current) return;
+			try {
+				const faceapi = await loadFaceModels();
+				const detection = await faceapi.detectSingleFace(
+					videoRef.current,
+					new faceapi.SsdMobilenetv1Options({ minConfidence: 0.85 })
+				);
+
+				if (detection) {
+					if (!holdStart) {
+						holdStart = Date.now();
+						setAutoCaptureStatus("Face found! Hold steady...");
+					} else {
+						const elapsed = Date.now() - holdStart;
+						if (elapsed >= 1500) {
+							active = false;
+							setAutoCaptureStatus("Verifying identity...");
+							void submitPunchRef.current();
+							return; 
+						}
+					}
+				} else {
+					holdStart = null;
+					setAutoCaptureStatus("Position your face clearly in the camera");
+				}
+			} catch (err) {}
+
+			if (active) {
+				setTimeout(autoTrack, 400);
+			}
+		}
+
+		autoTrack();
+
+		return () => {
+			active = false;
+		};
+	}, [streaming, busy, result]);
 
 	function reset() {
 		stopCamera();
 		setResult(null);
 		setError("");
 		void requestLocation();
+		void startCamera();
 	}
 
 	const actionLabel =
@@ -308,14 +370,12 @@ export default function AttendancePunchPage() {
 							<div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 sm:px-6">
 								<div>
 									<p className="text-sm font-bold">Mark attendance</p>
-									<p className="mt-0.5 text-xs text-slate-500" suppressHydrationWarning>
+									<p className="mt-0.5 text-xs text-slate-500">
 										{now.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
-										<time dateTime={now.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })} suppressHydrationWarning />
-
 									</p>
 								</div>
-								<div className="flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1.5 font-mono text-xs font-semibold text-slate-700" suppressHydrationWarning={true} >
-									<Clock3 className="size-3.5" suppressHydrationWarning={true} />
+								<div className="flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1.5 font-mono text-xs font-semibold text-slate-700">
+									<Clock3 className="size-3.5" />
 									{now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
 								</div>
 							</div>
@@ -339,20 +399,27 @@ export default function AttendancePunchPage() {
 													<Camera className="size-7" />
 												</div>
 											</div>
-											<p className="text-sm font-semibold text-white">Ready for verification</p>
+											<p className="text-sm font-semibold text-white">Starting Camera...</p>
 											<p className="mt-1.5 max-w-56 text-xs leading-5 text-slate-400">
-												Open the camera and position your face inside the frame.
+												Please allow camera permissions if prompted.
 											</p>
 										</div>
 									)}
 
 									{streaming && (
 										<>
-											<div className="pointer-events-none absolute inset-[12%_22%] rounded-[42%] border border-white/60 shadow-[0_0_0_999px_rgba(2,6,23,0.22)]" />
+											<div className="pointer-events-none absolute inset-[12%_22%] rounded-[42%] border border-white/60 shadow-[0_0_0_999px_rgba(2,6,23,0.22)] transition-colors duration-300 data-[highlight=true]:border-emerald-400 data-[highlight=true]:scale-105" data-highlight={autoCaptureStatus.includes("Hold") || autoCaptureStatus.includes("Verifying")} />
 											<div className="absolute left-4 top-4 flex items-center gap-2 rounded-full bg-slate-950/70 px-3 py-1.5 text-[11px] font-semibold text-white backdrop-blur">
-												<span className="size-1.5 animate-pulse rounded-full bg-emerald-400" />
-												Camera live
+												<span className={`size-1.5 animate-pulse rounded-full ${autoCaptureStatus.includes("Steady") || autoCaptureStatus.includes("Hold") ? "bg-emerald-400" : "bg-blue-400"}`} />
+												{autoCaptureStatus || "Camera live"}
 											</div>
+											{autoCaptureStatus.includes("Hold") && (
+												<div className="absolute inset-x-0 bottom-8 flex justify-center">
+													<span className="rounded-full bg-slate-950/80 px-4 py-2 text-sm font-semibold text-emerald-400 shadow-xl backdrop-blur animate-pulse">
+														{autoCaptureStatus}
+													</span>
+												</div>
+											)}
 										</>
 									)}
 
@@ -376,23 +443,21 @@ export default function AttendancePunchPage() {
 								</div>
 
 								<div className="mt-4 grid gap-3 sm:grid-cols-2">
-
 									<StatusCard
 										active={isInsideGeofence}
 										loading={locationBusy}
 										title={locationBusy ? "Locating you…" : isInsideGeofence ? "Inside attendance zone" : "Outside attendance zones"}
-										detail={nearestSite ? `${nearestSite.name} · ${Math.round(nearestSite.distance)}m away · saves as unknown` : "Will save as unknown location"}
+										detail={nearestSite ? `${nearestSite.name} · ${Math.round(nearestSite.distance)}m away` : "Will save as unknown location"}
 									/>
-
 									<div className="rounded-2xl border border-slate-200 bg-slate-50 p-3.5">
 										<div className="flex items-start gap-3">
 											<div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-white text-slate-700 shadow-sm">
 												<Building2 className="size-4" />
 											</div>
 											<div>
-												<p className="text-xs font-bold">Automatic site binding</p>
+												<p className="text-xs font-bold">Automatic verification</p>
 												<p className="mt-1 text-[11px] text-slate-500">
-													{location ? `GPS accuracy ±${Math.round(location.accuracy)}m` : "Location permission required"}
+													AI instantly scans and records.
 												</p>
 											</div>
 										</div>
@@ -410,12 +475,12 @@ export default function AttendancePunchPage() {
 									{result ? (
 										<Button onClick={reset} className="h-12 w-full rounded-xl bg-slate-950 text-white hover:bg-slate-800">
 											<RefreshCw className="size-4" />
-											Mark another attendance
+											Punch next person
 										</Button>
 									) : !streaming ? (
 										<Button onClick={startCamera} className="h-12 w-full rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700">
 											<Camera className="size-4" />
-											Open camera
+											Start Auto Scanner
 											<ArrowRight className="ml-auto size-4" />
 										</Button>
 									) : (
@@ -424,18 +489,13 @@ export default function AttendancePunchPage() {
 												variant="outline"
 												onClick={stopCamera}
 												disabled={busy}
-												className="h-12 rounded-xl border-slate-200 px-5 text-slate-700"
+												className="h-12 flex-1 rounded-xl border-slate-200 px-5 text-slate-700"
 											>
-												Cancel
+												Pause Scanner
 											</Button>
-											<Button
-												onClick={submitPunch}
-												disabled={busy || locationBusy || !location}
-												className="h-12 flex-1 rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700"
-											>
-												{busy ? <LoaderCircle className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
-												{busy ? "Verifying…" : "Verify & submit"}
-											</Button>
+											<div className="flex items-center justify-center px-4">
+												{busy && <LoaderCircle className="size-5 animate-spin text-blue-600" />}
+											</div>
 										</>
 									)}
 								</div>
@@ -503,5 +563,3 @@ function StatusCard({
 		</div>
 	);
 }
-
-

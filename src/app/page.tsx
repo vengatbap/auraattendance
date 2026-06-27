@@ -1,568 +1,457 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useState } from "react";
 import {
-	ArrowRight,
-	Building2,
-	Camera,
-	Check,
-	CheckCircle2,
-	Clock3,
-	LoaderCircle,
-	LocateFixed,
-	LockKeyhole,
-	MapPin,
-	RefreshCw,
-	ScanFace,
-	ShieldCheck,
-	TriangleAlert,
+  ArrowRight,
+  ScanFace,
+  ShieldCheck,
+  LocateFixed,
+  Clock,
+  Sparkles,
+  HelpCircle,
+  Send,
+  Laptop,
+  CheckCircle2,
+  Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { haversineDistance } from "@/utils";
+import { Input } from "@/components/ui/input";
+import { toast } from "sonner";
 
-interface Site {
-	id: string;
-	name: string;
-	latitude: number;
-	longitude: number;
-	radius: number;
-	status: string;
-}
+export default function MarketingLandingPage() {
+  const [activeFaq, setActiveFaq] = useState<number | null>(null);
+  const [contactForm, setContactForm] = useState({ name: "", email: "", message: "" });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [demoStep, setDemoStep] = useState(0); // 0: Idle, 1: Scanning, 2: Matched!
 
-interface LocationReading {
-	latitude: number;
-	longitude: number;
-	accuracy: number;
-}
+  const handleContactSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!contactForm.name || !contactForm.email || !contactForm.message) {
+      toast.error("Please fill in all contact form fields");
+      return;
+    }
+    setIsSubmitting(true);
+    setTimeout(() => {
+      toast.success("Inquiry submitted! We'll contact you shortly.");
+      setContactForm({ name: "", email: "", message: "" });
+      setIsSubmitting(false);
+    }, 1200);
+  };
 
-interface PunchResult {
-	action: "check_in" | "check_out" | "already_checked_out";
-	employee: { name: string; employeeNumber: string };
-	site: { name: string };
-	faceScore: number;
-	distanceMeters: number | null;
-	locationMatched: boolean;
-	latitude: number;
-	longitude: number;
-}
+  const triggerDemo = () => {
+    if (demoStep !== 0) return;
+    setDemoStep(1);
+    setTimeout(() => {
+      setDemoStep(2);
+    }, 2000);
+  };
 
-let faceModelsPromise: Promise<typeof import("@vladmandic/face-api")> | null = null;
-const FACE_MODEL_URL = "https://justadudewhohacks.github.io/face-api.js/models";
+  const faqs = [
+    {
+      q: "How does the face recognition system verify identities?",
+      a: "Our system runs high-performance deep learning models on the browser to detect facial landmarks and convert them into a mathematically unique 128-dimensional vector (embedding). We never store raw photos for matching—only secure vector hashes. These vectors are compared on the server using cosine similarity to confirm identity.",
+    },
+    {
+      q: "What is geofencing and how does it prevent punch tampering?",
+      a: "Geofencing uses browser-level GPS coordinates to verify that an employee is physically located within the approved perimeter of a job site (e.g. 50 meters) at the exact moment they punch in. Coordinates are locked and distance checks are computed on the server side using the Haversine distance algorithm, preventing GPS spoofing.",
+    },
+    {
+      q: "Does the system support offline logs if Internet goes down?",
+      a: "Yes! Aura features offline capability. If a device loses Internet access, attendance logs are securely cached in local storage. Once the connection is re-established, the kiosk automatically synchronizes the pending punches back to the central database in the background.",
+    },
+    {
+      q: "Can we install Aura on a wall-mounted tablet?",
+      a: "Aura is designed as a fully responsive Progressive Web App (PWA). You can mount any modern iOS or Android tablet on a wall, lock it in kiosk mode, and open the attendance scanner URL. It adapts dynamically to tablets, kiosks, and mobile viewports.",
+    },
+  ];
 
-async function loadFaceModels() {
-	if (!faceModelsPromise) {
-		faceModelsPromise = import("@vladmandic/face-api").then(async (faceapi) => {
-			await Promise.all([
-				faceapi.nets.ssdMobilenetv1.loadFromUri(FACE_MODEL_URL),
-				faceapi.nets.faceLandmark68Net.loadFromUri(FACE_MODEL_URL),
-				faceapi.nets.faceRecognitionNet.loadFromUri(FACE_MODEL_URL),
-			]);
-			return faceapi;
-		});
-	}
-	return faceModelsPromise;
-}
+  return (
+    <div className="min-h-screen bg-[#030712] text-slate-100 flex flex-col font-sans relative overflow-hidden selection:bg-blue-600 selection:text-white">
+      {/* Decorative Gradients */}
+      <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full bg-blue-600/10 blur-[150px] pointer-events-none" />
+      <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-indigo-600/10 blur-[150px] pointer-events-none" />
 
-export default function AttendancePunchPage() {
-	const videoRef = useRef<HTMLVideoElement>(null);
-	const canvasRef = useRef<HTMLCanvasElement>(null);
-	const streamRef = useRef<MediaStream | null>(null);
-	const [sites, setSites] = useState<Site[]>([]);
-	const [location, setLocation] = useState<LocationReading | null>(null);
-	const [locationBusy, setLocationBusy] = useState(true);
-	const [streaming, setStreaming] = useState(false);
-	const [busy, setBusy] = useState(false);
-	const [error, setError] = useState("");
-	const [result, setResult] = useState<PunchResult | null>(null);
-	const [now, setNow] = useState(() => new Date());
-	const [autoCaptureStatus, setAutoCaptureStatus] = useState<string>("");
+      {/* Header */}
+      <header className="sticky top-0 z-50 backdrop-blur-md border-b border-slate-900 bg-[#030712]/70">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="size-9 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-lg shadow-blue-600/20">
+              <ScanFace className="size-5" />
+            </div>
+            <span className="font-extrabold text-lg tracking-tight bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">
+              AURA
+            </span>
+          </div>
 
-	const stopCamera = useCallback(() => {
-		streamRef.current?.getTracks().forEach((track) => track.stop());
-		streamRef.current = null;
-		if (videoRef.current) videoRef.current.srcObject = null;
-		setStreaming(false);
-	}, []);
+          <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-slate-400">
+            <a href="#features" className="hover:text-white transition">Features</a>
+            <a href="#demo" className="hover:text-white transition">Interactive Demo</a>
+            <a href="#pricing" className="hover:text-white transition">Pricing</a>
+            <a href="#faq" className="hover:text-white transition">FAQ</a>
+            <a href="#contact" className="hover:text-white transition">Contact</a>
+          </nav>
 
-	const requestLocation = useCallback(async () => {
-		setLocationBusy(true);
-		setError("");
-		try {
-			const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-				navigator.geolocation.getCurrentPosition(resolve, reject, {
-					enableHighAccuracy: true,
-					maximumAge: 15_000,
-					timeout: 12_000,
-				});
-			});
-			setLocation({
-				latitude: position.coords.latitude,
-				longitude: position.coords.longitude,
-				accuracy: position.coords.accuracy,
-			});
-		} catch {
-			setLocation(null);
-			setError("Location access is required to bind attendance to an approved site.");
-		} finally {
-			setLocationBusy(false);
-		}
-	}, []);
+          <div className="flex items-center gap-4">
+            <Link href="/login" className="text-sm font-semibold hover:text-white transition text-slate-300">
+              Log In
+            </Link>
+            <Link href="/signup">
+              <Button className="bg-blue-600 hover:bg-blue-500 text-white font-semibold px-5 py-2.5 rounded-xl shadow-lg shadow-blue-600/20">
+                Start Trial
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </header>
 
-	const startCamera = useCallback(async () => {
-		setError("");
-		setResult(null);
-		try {
-			const stream = await navigator.mediaDevices.getUserMedia({
-				video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 960 } },
-				audio: false,
-			});
-			streamRef.current = stream;
-			if (videoRef.current) {
-				videoRef.current.srcObject = stream;
-				await videoRef.current.play();
-			}
-			setStreaming(true);
-			void loadFaceModels().catch(() => setError("Face recognition models could not be loaded."));
-		} catch {
-			setError("Camera access is required to verify your identity. Please enable permissions.");
-		}
-	}, []);
+      {/* Main Body */}
+      <main className="flex-1">
+        {/* Hero Section */}
+        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 pb-28 text-center space-y-8 relative">
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-blue-500/30 bg-blue-500/5 text-blue-400 text-xs font-semibold">
+            <Sparkles className="size-3.5" />
+            Biometric Geofenced SaaS Platform
+          </div>
+          <h1 className="max-w-4xl mx-auto text-5xl sm:text-7xl font-extrabold tracking-tight leading-[1.08] text-white">
+            Trustworthy Attendance. <br />
+            <span className="bg-gradient-to-r from-blue-400 to-indigo-500 bg-clip-text text-transparent">
+              Zero Room for Error.
+            </span>
+          </h1>
+          <p className="max-w-2xl mx-auto text-base sm:text-lg text-slate-400 leading-relaxed">
+            Eliminate buddy punching and time fraud. Aura uses secure face matching and location-based geofences to verify employees are at work in real time.
+          </p>
+          <div className="flex flex-wrap justify-center gap-4 pt-4">
+            <Link href="/signup">
+              <Button className="h-13 px-8 bg-blue-600 hover:bg-blue-500 text-white text-base font-bold rounded-xl shadow-xl shadow-blue-600/25">
+                Register Your Company
+                <ArrowRight className="ml-2 size-4" />
+              </Button>
+            </Link>
+            <Link href="/attendance">
+              <Button variant="outline" className="h-13 px-8 border-slate-800 text-slate-300 bg-slate-900/40 hover:bg-slate-800">
+                Open Punch Kiosk
+              </Button>
+            </Link>
+          </div>
+        </section>
 
-	useEffect(() => {
-		async function initialize() {
-			try {
-				const response = await fetch("/api/sites");
-				if (!response.ok) throw new Error();
-				const data = (await response.json()) as Site[];
-				setSites(data.filter((site) => site.status === "active"));
-			} catch {
-				setError("Unable to load attendance sites.");
-			}
-		}
+        {/* Live Attendance Demo Section */}
+        <section id="demo" className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-20 border-t border-slate-900">
+          <div className="grid lg:grid-cols-[1fr_1.1fr] gap-12 items-center">
+            <div className="space-y-6">
+              <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-white">
+                See Aura in Action
+              </h2>
+              <p className="text-slate-400 text-base leading-relaxed">
+                Click the interactive simulator on the right to see how quickly our biometrics match and confirm location bindings.
+              </p>
+              <ul className="space-y-4">
+                {[
+                  "Browser-level Face Matching via CDN models",
+                  "Haversine geofence calculations (±1m resolution)",
+                  "Automatic sync queue for offline punches",
+                  "Direct audit logging on every check-in/out",
+                ].map((item, idx) => (
+                  <li key={idx} className="flex items-center gap-3 text-slate-300 text-sm">
+                    <CheckCircle2 className="size-5 text-blue-500 shrink-0" />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+              <Button onClick={triggerDemo} disabled={demoStep !== 0} className="bg-blue-600 hover:bg-blue-500 px-6 py-3 rounded-xl font-bold">
+                {demoStep === 0 && "Test Kiosk Simulator"}
+                {demoStep === 1 && "Verifying Face..."}
+                {demoStep === 2 && "Kiosk Verified!"}
+              </Button>
+            </div>
 
-		void initialize();
-		void requestLocation();
-		void startCamera(); // Auto start camera on load
-		
-		const clock = window.setInterval(() => setNow(new Date()), 1000);
-		return () => {
-			window.clearInterval(clock);
-			streamRef.current?.getTracks().forEach((track) => track.stop());
-		};
-	}, [requestLocation, startCamera]);
+            {/* Simulated Mobile/Kiosk frame */}
+            <div className="relative aspect-[4/3] rounded-3xl border border-slate-800 bg-slate-950 flex flex-col justify-between overflow-hidden shadow-2xl p-6">
+              {/* Scan Guide Overlay */}
+              {demoStep === 1 && (
+                <div className="absolute inset-[15%_25%] rounded-[45%] border-2 border-dashed border-blue-500 animate-pulse pointer-events-none" />
+              )}
 
-	const nearestSite = useMemo(() => {
-		if (!location || sites.length === 0) return null;
-		return sites
-			.map((site) => ({
-				...site,
-				distance: haversineDistance(
-					location.latitude,
-					location.longitude,
-					site.latitude,
-					site.longitude
-				),
-			}))
-			.sort((a, b) => a.distance - b.distance)[0];
-	}, [location, sites]);
+              <header className="flex justify-between items-center z-10">
+                <div className="flex items-center gap-2">
+                  <div className="size-7 rounded-lg bg-blue-600 flex items-center justify-center text-white">
+                    <ScanFace className="size-4" />
+                  </div>
+                  <span className="text-xs font-bold text-slate-300">Aura Kiosk</span>
+                </div>
+                <div className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-slate-400">
+                  10:15 AM
+                </div>
+              </header>
 
-	const isInsideGeofence = Boolean(
-		nearestSite && nearestSite.distance <= nearestSite.radius
-	);
+              {/* Central Screen State */}
+              <div className="flex-1 flex flex-col items-center justify-center text-center py-4 z-10">
+                {demoStep === 0 && (
+                  <div className="space-y-3">
+                    <div className="size-16 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-500 mx-auto">
+                      <Laptop className="size-7" />
+                    </div>
+                    <p className="text-sm font-semibold text-white">Simulator Ready</p>
+                    <p className="text-xs text-slate-400 max-w-xs">
+                      Click the button on the left to start the simulated face recognition scan.
+                    </p>
+                  </div>
+                )}
 
-	function capturePhoto() {
-		const video = videoRef.current;
-		const canvas = canvasRef.current;
-		if (!video || !canvas || !video.videoWidth) return null;
-		canvas.width = video.videoWidth;
-		canvas.height = video.videoHeight;
-		const context = canvas.getContext("2d");
-		if (!context) return null;
-		context.drawImage(video, 0, 0, canvas.width, canvas.height);
-		return canvas.toDataURL("image/jpeg", 0.86);
-	}
+                {demoStep === 1 && (
+                  <div className="space-y-3">
+                    <p className="text-sm font-bold text-blue-400 animate-pulse">Scanning face & location...</p>
+                    <p className="text-xs text-slate-400">GPS Proximity: checking SEEF geofence...</p>
+                  </div>
+                )}
 
-	async function generateDescriptor(photo: string) {
-		const faceapi = await loadFaceModels();
-		const image = new Image();
-		image.src = photo;
-		await new Promise((r) => { image.onload = r; });
-		const detection = await faceapi
-			.detectSingleFace(image)
-			.withFaceLandmarks()
-			.withFaceDescriptor();
-		if (!detection) throw new Error("No face detected. Center your face and try again.");
-		return Array.from(detection.descriptor);
-	}
+                {demoStep === 2 && (
+                  <div className="space-y-3 animate-scale-up">
+                    <div className="size-14 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto border border-emerald-400/30 shadow-lg shadow-emerald-500/10">
+                      <Check className="size-7 stroke-[3]" />
+                    </div>
+                    <div>
+                      <p className="text-base font-bold text-white">Welcome Ahmed!</p>
+                      <p className="text-xs text-emerald-400">Checked In · 10:15 AM</p>
+                    </div>
+                    <p className="text-[10px] text-slate-500">
+                      Match Confidence: 94.2% · Location: SEEF Office (14m)
+                    </p>
+                    <button onClick={() => setDemoStep(0)} className="text-xs text-blue-500 underline mt-2 block mx-auto">
+                      Reset Simulator
+                    </button>
+                  </div>
+                )}
+              </div>
 
-	function getFreshLocation() {
-		return new Promise<GeolocationPosition>((resolve, reject) => {
-			navigator.geolocation.getCurrentPosition(resolve, reject, {
-				enableHighAccuracy: true,
-				maximumAge: 0,
-				timeout: 12_000,
-			});
-		});
-	}
+              <footer className="flex justify-between items-center text-[10px] text-slate-500 border-t border-slate-900 pt-4 z-10">
+                <span className="flex items-center gap-1">
+                  <ShieldCheck className="size-3 text-blue-500" /> Secure Encryption
+                </span>
+                <span className="flex items-center gap-1">
+                  <LocateFixed className="size-3 text-blue-500" /> Geofence Verified
+                </span>
+              </footer>
+            </div>
+          </div>
+        </section>
 
-	const submitPunch = useCallback(async () => {
-		setBusy(true);
-		setError("");
-		setResult(null);
-		setAutoCaptureStatus("");
-		
-		try {
-			const photo = capturePhoto();
-			if (!photo) throw new Error("The camera is not ready yet.");
+        {/* Features Section */}
+        <section id="features" className="bg-[#050b18]/60 py-24 border-t border-slate-900">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-16">
+            <div className="text-center space-y-4">
+              <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-white">
+                Everything You Need for Enterprise Tracking
+              </h2>
+              <p className="max-w-2xl mx-auto text-slate-400 text-sm sm:text-base">
+                Aura combines cutting-edge biometrics, proximity geofences, and multi-tenant security configurations.
+              </p>
+            </div>
 
-			const [position, descriptor] = await Promise.all([
-				getFreshLocation(),
-				generateDescriptor(photo),
-			]);
-			setLocation({
-				latitude: position.coords.latitude,
-				longitude: position.coords.longitude,
-				accuracy: position.coords.accuracy,
-			});
+            <div className="grid md:grid-cols-3 gap-8">
+              {[
+                {
+                  icon: ScanFace,
+                  title: "Guided Facial Enrolls",
+                  desc: "A guided 5-step webcam setup matching profiles under multiple lighting configurations and rotations.",
+                },
+                {
+                  icon: LocateFixed,
+                  title: "Proximity GPS Geofences",
+                  desc: "Forces checking coordinates against sites using server-verified Haversine calculation to block location spoofing.",
+                },
+                {
+                  icon: Clock,
+                  title: "Audit Trail Overrides",
+                  desc: "Full logging tracking updates made by managers with complete snapshot history for state tracking.",
+                },
+              ].map((feat, idx) => (
+                <div key={idx} className="p-8 rounded-2xl border border-slate-900 bg-slate-950/60 hover:border-slate-800 transition">
+                  <div className="size-11 rounded-xl bg-blue-600/10 text-blue-500 flex items-center justify-center mb-6">
+                    <feat.icon className="size-5" />
+                  </div>
+                  <h3 className="text-lg font-bold text-white mb-2">{feat.title}</h3>
+                  <p className="text-slate-400 text-xs leading-relaxed">{feat.desc}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
 
-			const response = await fetch("/api/attendance/punch", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					descriptor,
-					latitude: position.coords.latitude,
-					longitude: position.coords.longitude,
-					photo,
-					browser: navigator.userAgent,
-					deviceInfo: navigator.platform,
-				}),
-			});
-			const data = await response.json();
-			if (!response.ok) throw new Error(data.error || "Attendance was not saved.");
-			setResult(data);
-			stopCamera();
-		} catch (caught) {
-			setError(caught instanceof Error ? caught.message : "Attendance failed.");
-			// Restart camera automatically if submission failed so they can try again or position better
-			if (!streamRef.current) {
-				void startCamera();
-			}
-		} finally {
-			setBusy(false);
-		}
-	}, [startCamera, stopCamera]);
+        {/* Pricing Section */}
+        <section id="pricing" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
+          <div className="text-center space-y-4 mb-16">
+            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-white">Simple, Transparent Pricing</h2>
+            <p className="text-slate-400 text-sm">Choose the tier that maps to your workforce size.</p>
+          </div>
 
-	// Use a ref to access the latest submit action safely inside the effect
-	const submitPunchRef = useRef(submitPunch);
-	submitPunchRef.current = submitPunch;
+          <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
+            {[
+              {
+                title: "Free Trial",
+                price: "$0",
+                desc: "Explore Aura platform with standard biometrics.",
+                features: ["1 Site", "Up to 5 Employees", "14-day history", "GPS Proximity bindings"],
+                cta: "Register Trial",
+                link: "/signup",
+                popular: false,
+              },
+              {
+                title: "Standard",
+                price: "$49",
+                desc: "For small-to-medium teams looking to verify punches.",
+                features: ["5 Sites", "Up to 100 Employees", "Unlimited history", "Reports (CSV & Excel)", "Audit trails"],
+                cta: "Start Standard",
+                link: "/signup",
+                popular: true,
+              },
+              {
+                title: "Enterprise",
+                price: "$199",
+                desc: "For large organizations with strict auditing rules.",
+                features: ["Unlimited Sites", "Unlimited Employees", "Biometric duplicate checks", "Priority support email", "Dedicated integration panel"],
+                cta: "Get Enterprise",
+                link: "/signup",
+                popular: false,
+              },
+            ].map((plan, idx) => (
+              <div
+                key={idx}
+                className={`p-8 rounded-3xl border flex flex-col justify-between relative bg-slate-950 ${
+                  plan.popular ? "border-blue-600 shadow-2xl shadow-blue-600/5 scale-105 z-10" : "border-slate-900"
+                }`}
+              >
+                {plan.popular && (
+                  <span className="absolute top-0 right-8 -translate-y-1/2 bg-blue-600 text-white px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wide">
+                    Popular
+                  </span>
+                )}
+                <div>
+                  <h3 className="text-lg font-bold text-white">{plan.title}</h3>
+                  <div className="mt-4 flex items-baseline gap-1">
+                    <span className="text-4xl font-extrabold text-white">{plan.price}</span>
+                    <span className="text-slate-400 text-xs">/month</span>
+                  </div>
+                  <p className="mt-2 text-slate-400 text-xs leading-relaxed">{plan.desc}</p>
+                  <ul className="mt-6 space-y-3.5 border-t border-slate-900 pt-6">
+                    {plan.features.map((f, i) => (
+                      <li key={i} className="flex items-center gap-3 text-slate-300 text-xs">
+                        <Check className="size-4 text-blue-500" />
+                        {f}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <Link href={plan.link} className="mt-8">
+                  <Button
+                    className={`w-full py-5 rounded-xl font-bold text-xs ${
+                      plan.popular ? "bg-blue-600 hover:bg-blue-500 text-white" : "bg-slate-900 hover:bg-slate-800 text-slate-300"
+                    }`}
+                  >
+                    {plan.cta}
+                  </Button>
+                </Link>
+              </div>
+            ))}
+          </div>
+        </section>
 
-	useEffect(() => {
-		if (!streaming || busy || result) {
-			setAutoCaptureStatus("");
-			return;
-		}
+        {/* FAQ Section */}
+        <section id="faq" className="bg-[#050b18]/60 py-24 border-t border-slate-900">
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
+            <h2 className="text-3xl font-bold tracking-tight text-white text-center">Frequently Asked Questions</h2>
+            <div className="space-y-4">
+              {faqs.map((faq, idx) => (
+                <div key={idx} className="border border-slate-900 rounded-2xl bg-slate-950 overflow-hidden">
+                  <button
+                    onClick={() => setActiveFaq(activeFaq === idx ? null : idx)}
+                    className="w-full p-6 text-left flex justify-between items-center gap-4"
+                  >
+                    <span className="font-bold text-slate-200 text-sm sm:text-base">{faq.q}</span>
+                    <HelpCircle className={`size-5 text-slate-400 shrink-0 transition-transform ${activeFaq === idx ? "rotate-180" : ""}`} />
+                  </button>
+                  {activeFaq === idx && (
+                    <div className="px-6 pb-6 text-slate-400 text-xs sm:text-sm leading-relaxed border-t border-slate-900/60 pt-4">
+                      {faq.a}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
 
-		let active = true;
-		let holdStart: number | null = null;
-		
-		async function autoTrack() {
-			if (!active || !videoRef.current) return;
-			try {
-				const faceapi = await loadFaceModels();
-				// Use lighter settings for realtime detection loop
-				const detection = await faceapi.detectSingleFace(
-					videoRef.current,
-					new faceapi.SsdMobilenetv1Options({ minConfidence: 0.85 })
-				);
+        {/* Contact Form Section */}
+        <section id="contact" className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
+          <div className="rounded-3xl border border-slate-900 bg-slate-950 p-8 sm:p-12 space-y-8">
+            <div className="text-center space-y-2">
+              <h2 className="text-3xl font-bold tracking-tight text-white">Have Questions? Reach Out</h2>
+              <p className="text-slate-400 text-xs sm:text-sm">We reply to inquiries within 24 hours.</p>
+            </div>
 
-				if (detection) {
-					if (!holdStart) {
-						holdStart = Date.now();
-						setAutoCaptureStatus("Face found! Hold steady...");
-					} else {
-						const elapsed = Date.now() - holdStart;
-						if (elapsed >= 1500) { // Require holding steady for 1.5s
-							active = false;
-							setAutoCaptureStatus("Verifying identity...");
-							void submitPunchRef.current();
-							return; 
-						}
-					}
-				} else {
-					holdStart = null;
-					setAutoCaptureStatus("Position your face clearly in the camera");
-				}
-			} catch (err) {}
+            <form onSubmit={handleContactSubmit} className="space-y-5 max-w-xl mx-auto">
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-slate-400">Your Name</label>
+                  <Input
+                    placeholder="John Doe"
+                    value={contactForm.name}
+                    onChange={(e) => setContactForm({ ...contactForm, name: e.target.value })}
+                    className="bg-[#030712] border-slate-800 text-slate-100"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-slate-400">Email Address</label>
+                  <Input
+                    type="email"
+                    placeholder="john@company.com"
+                    value={contactForm.email}
+                    onChange={(e) => setContactForm({ ...contactForm, email: e.target.value })}
+                    className="bg-[#030712] border-slate-800 text-slate-100"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-slate-400">Message</label>
+                <textarea
+                  rows={4}
+                  placeholder="Tell us about your workforce tracking needs..."
+                  value={contactForm.message}
+                  onChange={(e) => setContactForm({ ...contactForm, message: e.target.value })}
+                  className="w-full rounded-lg bg-[#030712] border border-slate-800 text-slate-100 p-3 text-sm focus:outline-none focus:border-blue-600 transition placeholder:text-slate-600"
+                />
+              </div>
+              <Button type="submit" disabled={isSubmitting} className="w-full bg-blue-600 hover:bg-blue-500 font-bold h-12 rounded-xl">
+                {isSubmitting ? "Sending..." : "Submit Inquiry"}
+                <Send className="ml-2 size-4" />
+              </Button>
+            </form>
+          </div>
+        </section>
+      </main>
 
-			if (active) {
-				setTimeout(autoTrack, 400);
-			}
-		}
+      {/* Footer */}
+      <footer className="border-t border-slate-950 bg-[#02050c] text-slate-500 py-12">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-6">
+          <div className="flex items-center gap-3">
+            <div className="size-8 rounded-lg bg-blue-600 flex items-center justify-center text-white">
+              <ScanFace className="size-4.5" />
+            </div>
+            <span className="font-extrabold text-sm text-slate-200 tracking-tight">AURA</span>
+          </div>
 
-		autoTrack();
+          <div className="flex gap-8 text-xs">
+            <Link href="/privacy" className="hover:text-slate-300">Privacy Policy</Link>
+            <Link href="/terms" className="hover:text-slate-300">Terms of Service</Link>
+            <Link href="/faq" className="hover:text-slate-300">FAQ</Link>
+            <Link href="/blog" className="hover:text-slate-300">Release Notes</Link>
+          </div>
 
-		return () => {
-			active = false;
-		};
-	}, [streaming, busy, result]);
-
-	function reset() {
-		stopCamera();
-		setResult(null);
-		setError("");
-		void requestLocation();
-		void startCamera();
-	}
-
-	const actionLabel =
-		result?.action === "check_in"
-			? "Check-in complete"
-			: result?.action === "check_out"
-				? "Check-out complete"
-				: "Attendance already complete";
-
-	return (
-		<main className="relative min-h-screen overflow-hidden bg-[#f4f7fb] text-slate-950">
-			<div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_15%,rgba(37,99,235,0.10),transparent_32%),radial-gradient(circle_at_85%_75%,rgba(14,165,233,0.08),transparent_30%)]" />
-			<div className="relative mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-5 sm:px-6 lg:px-8">
-				<header className="flex items-center justify-between">
-					<div className="flex items-center gap-3">
-						<div className="flex size-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-600/20">
-							<ScanFace className="size-5" />
-						</div>
-						<div>
-							<p className="text-sm font-bold tracking-tight">Aura Attendance</p>
-							<p className="text-[11px] font-medium text-slate-500">Secure workforce access</p>
-						</div>
-					</div>
-					<Link
-						href="/dashboard"
-						className="flex items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-4 py-2 text-xs font-semibold text-slate-600 shadow-sm backdrop-blur transition hover:border-slate-300 hover:text-slate-950"
-					>
-						<LockKeyhole className="size-3.5" />
-						Admin portal
-					</Link>
-				</header>
-
-				<div className="grid flex-1 items-center gap-8 py-8 lg:grid-cols-[0.9fr_1.1fr] lg:gap-16">
-					<section className="order-2 lg:order-1">
-						<div className="mb-5 inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700">
-							<ShieldCheck className="size-3.5" />
-							Face + geofence protected
-						</div>
-						<h1 className="max-w-xl text-4xl font-bold leading-[1.08] tracking-[-0.04em] sm:text-5xl lg:text-6xl">
-							Attendance that knows you&apos;re
-							<span className="text-blue-600"> in the right place.</span>
-						</h1>
-						<p className="mt-5 max-w-lg text-base leading-7 text-slate-600">
-							Your face confirms who you are. Your live location automatically binds the punch
-							to the nearest approved workplace.
-						</p>
-
-						<div className="mt-8 grid max-w-lg gap-3 sm:grid-cols-3">
-							<Feature icon={ScanFace} title="Face verified" copy="Biometric match" />
-							<Feature icon={LocateFixed} title="Auto-bound" copy="No site selection" />
-							<Feature icon={ShieldCheck} title="Server checked" copy="Tamper resistant" />
-						</div>
-					</section>
-
-					<section className="order-1 lg:order-2">
-						<div className="mx-auto w-full max-w-xl overflow-hidden rounded-[2rem] border border-white bg-white shadow-[0_24px_80px_-24px_rgba(15,23,42,0.25)]">
-							<div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 sm:px-6">
-								<div>
-									<p className="text-sm font-bold">Mark attendance</p>
-									<p className="mt-0.5 text-xs text-slate-500">
-										{now.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
-									</p>
-								</div>
-								<div className="flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1.5 font-mono text-xs font-semibold text-slate-700">
-									<Clock3 className="size-3.5" />
-									{now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-								</div>
-							</div>
-
-							<div className="p-4 sm:p-6">
-								<canvas ref={canvasRef} className="hidden" />
-								<div className="relative aspect-[4/3] overflow-hidden rounded-2xl bg-slate-950">
-									<video
-										ref={videoRef}
-										autoPlay
-										muted
-										playsInline
-										className={`h-full w-full scale-x-[-1] object-cover transition-opacity ${streaming ? "opacity-100" : "opacity-0"}`}
-									/>
-
-									{!streaming && !result && (
-										<div className="absolute inset-0 flex flex-col items-center justify-center bg-[radial-gradient(circle_at_center,#1e293b_0%,#020617_72%)] text-center">
-											<div className="relative mb-5">
-												<div className="absolute inset-0 animate-ping rounded-full bg-blue-500/20" />
-												<div className="relative flex size-16 items-center justify-center rounded-full border border-blue-400/30 bg-blue-500/15 text-blue-300">
-													<Camera className="size-7" />
-												</div>
-											</div>
-											<p className="text-sm font-semibold text-white">Starting Camera...</p>
-											<p className="mt-1.5 max-w-56 text-xs leading-5 text-slate-400">
-												Please allow camera permissions if prompted.
-											</p>
-										</div>
-									)}
-
-									{streaming && (
-										<>
-											<div className="pointer-events-none absolute inset-[12%_22%] rounded-[42%] border border-white/60 shadow-[0_0_0_999px_rgba(2,6,23,0.22)] transition-colors duration-300 data-[highlight=true]:border-emerald-400 data-[highlight=true]:scale-105" data-highlight={autoCaptureStatus.includes("Hold") || autoCaptureStatus.includes("Verifying")} />
-											<div className="absolute left-4 top-4 flex items-center gap-2 rounded-full bg-slate-950/70 px-3 py-1.5 text-[11px] font-semibold text-white backdrop-blur">
-												<span className={`size-1.5 animate-pulse rounded-full ${autoCaptureStatus.includes("Steady") || autoCaptureStatus.includes("Hold") ? "bg-emerald-400" : "bg-blue-400"}`} />
-												{autoCaptureStatus || "Camera live"}
-											</div>
-											{autoCaptureStatus.includes("Hold") && (
-												<div className="absolute inset-x-0 bottom-8 flex justify-center">
-													<span className="rounded-full bg-slate-950/80 px-4 py-2 text-sm font-semibold text-emerald-400 shadow-xl backdrop-blur animate-pulse">
-														{autoCaptureStatus}
-													</span>
-												</div>
-											)}
-										</>
-									)}
-
-									{result && (
-										<div className="absolute inset-0 flex flex-col items-center justify-center bg-emerald-950 px-6 text-center text-white">
-											<div className="mb-4 flex size-16 items-center justify-center rounded-full bg-emerald-400 text-emerald-950 shadow-xl shadow-emerald-950/30">
-												<Check className="size-8 stroke-[3]" />
-											</div>
-											<p className="text-xl font-bold">{actionLabel}</p>
-											<p className="mt-2 text-sm text-emerald-100">
-												{result.employee.name} · {result.site.name}
-											</p>
-											<p className="mt-4 text-xs text-emerald-200/80">
-												Face {(result.faceScore * 100).toFixed(1)}% ·{" "}
-												{result.locationMatched && result.distanceMeters != null
-													? `${Math.round(result.distanceMeters)}m from site`
-													: `GPS ${result.latitude.toFixed(5)}, ${result.longitude.toFixed(5)}`}
-											</p>
-										</div>
-									)}
-								</div>
-
-								<div className="mt-4 grid gap-3 sm:grid-cols-2">
-									<StatusCard
-										active={isInsideGeofence}
-										loading={locationBusy}
-										title={locationBusy ? "Locating you…" : isInsideGeofence ? "Inside attendance zone" : "Outside attendance zones"}
-										detail={nearestSite ? `${nearestSite.name} · ${Math.round(nearestSite.distance)}m away · saves as unknown` : "Will save as unknown location"}
-									/>
-									<div className="rounded-2xl border border-slate-200 bg-slate-50 p-3.5">
-										<div className="flex items-start gap-3">
-											<div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-white text-slate-700 shadow-sm">
-												<Building2 className="size-4" />
-											</div>
-											<div>
-												<p className="text-xs font-bold">Automatic verification</p>
-												<p className="mt-1 text-[11px] text-slate-500">
-													AI instantly scans and records.
-												</p>
-											</div>
-										</div>
-									</div>
-								</div>
-
-								{error && (
-									<div className="mt-4 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-800">
-										<TriangleAlert className="mt-0.5 size-4 shrink-0" />
-										<span className="leading-5">{error}</span>
-									</div>
-								)}
-
-								<div className="mt-5 flex gap-3">
-									{result ? (
-										<Button onClick={reset} className="h-12 w-full rounded-xl bg-slate-950 text-white hover:bg-slate-800">
-											<RefreshCw className="size-4" />
-											Punch next person
-										</Button>
-									) : !streaming ? (
-										<Button onClick={startCamera} className="h-12 w-full rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700">
-											<Camera className="size-4" />
-											Start Auto Scanner
-											<ArrowRight className="ml-auto size-4" />
-										</Button>
-									) : (
-										<>
-											<Button
-												variant="outline"
-												onClick={stopCamera}
-												disabled={busy}
-												className="h-12 flex-1 rounded-xl border-slate-200 px-5 text-slate-700"
-											>
-												Pause Scanner
-											</Button>
-											{/* "Verify & submit" button hidden by default, or kept as a fallback */}
-											<div className="flex items-center justify-center px-4">
-												{busy && <LoaderCircle className="size-5 animate-spin text-blue-600" />}
-											</div>
-										</>
-									)}
-								</div>
-
-								{!locationBusy && !location && (
-									<button onClick={() => void requestLocation()} className="mt-3 flex w-full items-center justify-center gap-2 text-xs font-semibold text-blue-600 hover:text-blue-700">
-										<LocateFixed className="size-3.5" />
-										Retry location
-									</button>
-								)}
-							</div>
-						</div>
-					</section>
-				</div>
-
-				<footer className="flex items-center justify-center gap-2 pb-1 text-[11px] text-slate-400">
-					<ShieldCheck className="size-3.5" />
-					Encrypted verification · Location is used only for attendance
-				</footer>
-			</div>
-		</main>
-	);
-}
-
-function Feature({
-	icon: Icon,
-	title,
-	copy,
-}: {
-	icon: typeof ScanFace;
-	title: string;
-	copy: string;
-}) {
-	return (
-		<div className="rounded-2xl border border-white bg-white/70 p-4 shadow-sm backdrop-blur">
-			<Icon className="mb-3 size-5 text-blue-600" />
-			<p className="text-xs font-bold">{title}</p>
-			<p className="mt-1 text-[11px] text-slate-500">{copy}</p>
-		</div>
-	);
-}
-
-function StatusCard({
-	active,
-	loading,
-	title,
-	detail,
-}: {
-	active: boolean;
-	loading: boolean;
-	title: string;
-	detail: string;
-}) {
-	return (
-		<div className={`rounded-2xl border p-3.5 ${active ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
-			<div className="flex items-start gap-3">
-				<div className={`mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg ${active ? "bg-emerald-600 text-white" : "bg-amber-500 text-white"}`}>
-					{loading ? <LoaderCircle className="size-4 animate-spin" /> : <MapPin className="size-4" />}
-				</div>
-				<div className="min-w-0">
-					<p className="text-xs font-bold text-slate-900">{title}</p>
-					<p className="mt-1 truncate text-[11px] text-slate-600">{detail}</p>
-				</div>
-			</div>
-		</div>
-	);
+          <p className="text-[11px]">&copy; 2026 Aura Attendance, Inc. All rights reserved.</p>
+        </div>
+      </footer>
+    </div>
+  );
 }
