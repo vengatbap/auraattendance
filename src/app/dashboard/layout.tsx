@@ -17,7 +17,7 @@ import {
   LogOut,
   Menu,
   X,
-  
+  Network,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -25,6 +25,7 @@ const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Admins", href: "/dashboard/admins", icon: Users },
   { label: "Sites", href: "/dashboard/sites", icon: MapPin },
+  { label: "Departments", href: "/dashboard/departments", icon: Network },
   { label: "Employees", href: "/dashboard/employees", icon: Users2 },
   { label: "Attendance", href: "/dashboard/attendance", icon: Clock },
   { label: "Adjustments", href: "/dashboard/attendance/adjustments", icon: PencilLine },

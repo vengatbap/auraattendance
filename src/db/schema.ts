@@ -115,12 +115,25 @@ export const sites = pgTable("sites", {
   longitude: doublePrecision("longitude").notNull(),
   radius: doublePrecision("radius").notNull().default(50), // in meters
   status: varchar("status", { length: 50 }).notNull().default("active"),
+  allowedDevices: varchar("allowed_devices", { length: 50 }).notNull().default("both"), // "browser", "kiosk", "tablet", "both"
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
   deletedAt: timestamp("deleted_at"),
 }, (table) => [
   index("sites_organization_id_idx").on(table.organizationId),
   index("sites_project_id_idx").on(table.projectId),
+]);
+
+export const departments = pgTable("departments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 255 }).notNull(),
+  status: varchar("status", { length: 50 }).notNull().default("active"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  deletedAt: timestamp("deleted_at"),
+}, (table) => [
+  index("departments_organization_id_idx").on(table.organizationId),
 ]);
 
 export const employees = pgTable("employees", {
@@ -131,6 +144,7 @@ export const employees = pgTable("employees", {
   name: varchar("name", { length: 255 }).notNull(),
   siteId: uuid("site_id").references(() => sites.id, { onDelete: "set null" }),
   department: varchar("department", { length: 255 }),
+  departmentId: uuid("department_id").references(() => departments.id, { onDelete: "set null" }),
   designation: varchar("designation", { length: 255 }),
   phone: varchar("phone", { length: 50 }),
   email: varchar("email", { length: 255 }),
@@ -142,6 +156,7 @@ export const employees = pgTable("employees", {
 }, (table) => [
   index("employees_organization_id_idx").on(table.organizationId),
   index("employees_site_id_idx").on(table.siteId),
+  index("employees_department_id_idx").on(table.departmentId),
 ]);
 
 export const faceProfiles = pgTable("face_profiles", {
@@ -248,13 +263,16 @@ export const sessions = pgTable("sessions", {
   index("sessions_user_id_idx").on(table.userId),
 ]);
 
-// Relations
 export const employeeRelations = relations(employees, ({ many, one }) => ({
   faceProfiles: many(faceProfiles),
   attendanceLogs: many(attendanceLogs),
   site: one(sites, {
     fields: [employees.siteId],
     references: [sites.id],
+  }),
+  department: one(departments, {
+    fields: [employees.departmentId],
+    references: [departments.id],
   }),
 }));
 
@@ -286,6 +304,14 @@ export const siteRelations = relations(sites, ({ one, many }) => ({
     fields: [sites.projectId],
     references: [projects.id],
   }),
+}));
+
+export const departmentRelations = relations(departments, ({ one, many }) => ({
+  organization: one(organizations, {
+    fields: [departments.organizationId],
+    references: [organizations.id],
+  }),
+  employees: many(employees),
 }));
 
 

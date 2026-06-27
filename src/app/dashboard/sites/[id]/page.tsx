@@ -14,11 +14,15 @@ export default function EditSitePage({ params }: { params: Promise<{ id: string 
     async function fetchSite() {
       try {
         const res = await fetch(`/api/sites/${id}`);
-        if (!res.ok) throw new Error("Failed to fetch site");
-        const data = await res.json();
-        setSite(data);
+        if (!res.ok) throw new Error();
+        const result = await res.json();
+        if (result.success && result.data) {
+          setSite(result.data);
+        } else {
+          throw new Error();
+        }
       } catch {
-        toast.error("Failed to load site");
+        toast.error("Failed to load site details");
       } finally {
         setLoading(false);
       }

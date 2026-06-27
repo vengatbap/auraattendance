@@ -21,6 +21,7 @@ export interface Site {
   longitude: number;
   radius: number;
   status: SiteStatus;
+  allowedDevices: "browser" | "both" | "kiosk" | "tablet";
   createdAt: Date;
   updatedAt: Date;
 }
