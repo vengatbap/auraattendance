@@ -15,8 +15,8 @@ export const employeeRepository = {
       conditions.push(
         or(
           like(employees.name, `%${params.search}%`),
-          like(employees.employeeNumber, `%${params.search}%`),
-          like(employees.cpr, `%${params.search}%`),
+          like(employees.employeeCode, `%${params.search}%`),
+          like(employees.governmentId, `%${params.search}%`),
           like(employees.email, `%${params.search}%`)
         )
       );
@@ -43,8 +43,8 @@ export const employeeRepository = {
     return result[0] ?? null;
   },
 
-  async findByEmployeeNumber(employeeNumber: string) {
-    const result = await db.select().from(employees).where(eq(employees.employeeNumber, employeeNumber)).limit(1);
+  async findByEmployeeCode(employeeCode: string) {
+    const result = await db.select().from(employees).where(eq(employees.employeeCode, employeeCode)).limit(1);
     return result[0] ?? null;
   },
 

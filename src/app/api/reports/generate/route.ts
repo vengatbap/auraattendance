@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
       const logs = await db
         .select({
           employeeName: employees.name,
-          employeeId: employees.employeeNumber,
+          employeeId: employees.employeeCode,
           checkInTime: attendanceLogs.checkInTime,
           checkOutTime: attendanceLogs.checkOutTime,
           siteName: sites.name,
@@ -50,7 +50,7 @@ export async function GET(req: NextRequest) {
       const logs = await db
         .select({
           employeeName: employees.name,
-          employeeId: employees.employeeNumber,
+          employeeId: employees.employeeCode,
           status: attendanceLogs.status,
           checkInTime: attendanceLogs.checkInTime,
           checkOutTime: attendanceLogs.checkOutTime,
@@ -66,7 +66,7 @@ export async function GET(req: NextRequest) {
         );
 
       // Aggregate by employee
-      const summary: Record<string, any> = {};
+      const summary: Record<string, { employeeName: string; employeeId: string; present: number; absent: number; late: number; workingHours: number }> = {};
       logs.forEach((log) => {
         if (!summary[log.employeeId]) {
           summary[log.employeeId] = {
@@ -91,7 +91,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({
         type: "monthly",
         month,
-        data: Object.values(summary).map((emp: any) => ({
+        data: Object.values(summary).map((emp) => ({
           ...emp,
           workingHours: emp.workingHours.toFixed(2),
         })),
@@ -105,7 +105,7 @@ export async function GET(req: NextRequest) {
           siteName: sites.name,
           siteId: sites.id,
           employeeName: employees.name,
-          employeeId: employees.employeeNumber,
+          employeeId: employees.employeeCode,
           checkInTime: attendanceLogs.checkInTime,
           checkOutTime: attendanceLogs.checkOutTime,
         })
@@ -115,7 +115,7 @@ export async function GET(req: NextRequest) {
         .where(eq(attendanceLogs.date, date));
 
       // Group by site
-      const summary: Record<string, any> = {};
+      const summary: Record<string, { siteName: string; siteId: string | null; todaysAttendance: number; employees: string[]; totalHours: number }> = {};
       logs.forEach((log) => {
         if (!summary[log.siteId || "unknown"]) {
           summary[log.siteId || "unknown"] = {
@@ -138,7 +138,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({
         type: "site",
         date,
-        data: Object.values(summary).map((site: any) => ({
+        data: Object.values(summary).map((site) => ({
           ...site,
           totalHours: site.totalHours.toFixed(2),
         })),

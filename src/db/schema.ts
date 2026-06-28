@@ -139,8 +139,8 @@ export const departments = pgTable("departments", {
 export const employees = pgTable("employees", {
   id: uuid("id").primaryKey().defaultRandom(),
   organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }),
-  employeeNumber: varchar("employee_number", { length: 100 }).notNull().unique(),
-  cpr: varchar("cpr", { length: 100 }).notNull().unique(),
+  employeeCode: varchar("employee_code", { length: 100 }).notNull().unique(),
+  governmentId: varchar("government_id", { length: 100 }).notNull().unique(),
   name: varchar("name", { length: 255 }).notNull(),
   siteId: uuid("site_id").references(() => sites.id, { onDelete: "set null" }),
   department: varchar("department", { length: 255 }),
@@ -148,7 +148,7 @@ export const employees = pgTable("employees", {
   designation: varchar("designation", { length: 255 }),
   phone: varchar("phone", { length: 50 }),
   email: varchar("email", { length: 255 }),
-  status: varchar("status", { length: 50 }).notNull().default("active"), // "active", "inactive", "resigned"
+  status: varchar("status", { length: 50 }).notNull().default("active"), // "active", "inactive", "suspended", "resigned"
   enrollmentPhoto: text("enrollment_photo"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),

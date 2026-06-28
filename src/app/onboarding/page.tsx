@@ -153,7 +153,8 @@ export default function OnboardingPage() {
         }),
       });
       if (!siteRes.ok) throw new Error("Failed to save first site location");
-      const savedSite = await siteRes.json();
+      const siteResult = await siteRes.json();
+      const savedSite = siteResult.data;
 
       // 3. Create First Employee
       const empRes = await fetch("/api/employees", {
@@ -170,7 +171,8 @@ export default function OnboardingPage() {
         }),
       });
       if (!empRes.ok) throw new Error("Failed to enroll first employee record");
-      const savedEmployee = await empRes.json();
+      const empResult = await empRes.json();
+      const savedEmployee = empResult.data;
 
       toast.success("Onboarding configurations saved!");
       

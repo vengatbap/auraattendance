@@ -14,20 +14,24 @@ export default function EditEmployeePage({ params }: { params: Promise<{ id: str
     async function fetchEmployee() {
       try {
         const res = await fetch(`/api/employees/${id}`);
-        if (!res.ok) throw new Error("Failed to fetch employee");
-        const data = await res.json();
-        setEmployee(data);
+        if (!res.ok) throw new Error();
+        const result = await res.json();
+        if (result.success && result.data) {
+          setEmployee(result.data);
+        } else {
+          throw new Error();
+        }
       } catch {
-        toast.error("Failed to load employee");
+        toast.error("Failed to load employee details");
       } finally {
         setLoading(false);
       }
     }
-    fetchEmployee();
+    void fetchEmployee();
   }, [id]);
 
   if (loading) {
-    return <div className="text-center py-12">Loading...</div>;
+    return <div className="text-center py-12 text-slate-400">Loading...</div>;
   }
 
   if (!employee) {
@@ -40,14 +44,18 @@ export default function EditEmployeePage({ params }: { params: Promise<{ id: str
         <h1 className="text-3xl font-bold">Edit Employee</h1>
         <p className="text-slate-400 mt-2">Update employee information</p>
       </div>
-      {/* normalize nullable fields to undefined for the form */}
       <EmployeeForm
         initialData={{
           id: employee.id,
-          employeeNumber: employee.employeeNumber,
-          cpr: employee.cpr,
+          employeeCode: employee.employeeCode,
+          governmentId: employee.governmentId,
           name: employee.name,
           siteId: employee.siteId ?? undefined,
+          departmentId: employee.departmentId ?? undefined,
+          designation: employee.designation ?? undefined,
+          phone: employee.phone ?? undefined,
+          email: employee.email ?? undefined,
+          status: employee.status,
         }}
         isEdit
       />

@@ -29,11 +29,12 @@ export interface Site {
 export interface Employee {
   id: string;
   organizationId: string | null;
-  employeeNumber: string;
-  cpr: string;
+  employeeCode: string;
+  governmentId: string;
   name: string;
   siteId: string | null;
   department: string | null;
+  departmentId?: string | null;
   designation: string | null;
   phone: string | null;
   email: string | null;

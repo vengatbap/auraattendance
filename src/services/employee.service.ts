@@ -2,6 +2,7 @@ import { employeeRepository } from "@/repositories/employee.repository";
 import { faceRepository } from "@/repositories/face.repository";
 import { matchEmbedding } from "@/utils";
 import type { EmployeeStatus } from "@/types";
+import { employees } from "@/db/schema";
 
 export const employeeService = {
   async list(params?: { search?: string; status?: EmployeeStatus; page?: number; pageSize?: number }) {
@@ -15,8 +16,8 @@ export const employeeService = {
   },
 
   async create(data: {
-    employeeNumber: string;
-    cpr: string;
+    employeeCode: string;
+    governmentId: string;
     name: string;
     department?: string;
     designation?: string;
@@ -25,9 +26,9 @@ export const employeeService = {
     status?: EmployeeStatus;
     enrollmentPhoto?: string;
   }) {
-    const existing = await employeeRepository.findByEmployeeNumber(data.employeeNumber);
-    if (existing) throw new Error("Employee number already exists");
-    return employeeRepository.create(data as any);
+    const existing = await employeeRepository.findByEmployeeCode(data.employeeCode);
+    if (existing) throw new Error("Employee code already exists");
+    return employeeRepository.create(data as unknown as typeof employees.$inferInsert);
   },
 
   async update(id: string, data: Partial<{
@@ -35,7 +36,7 @@ export const employeeService = {
     phone: string; email: string; status: EmployeeStatus; enrollmentPhoto: string;
   }>) {
     await this.getById(id); // ensure exists
-    return employeeRepository.update(id, data as any);
+    return employeeRepository.update(id, data as unknown as Partial<typeof employees.$inferInsert>);
   },
 
   async delete(id: string) {

@@ -5,7 +5,7 @@ import { eq, and, gte, lte } from "drizzle-orm";
 import { getSession } from "@/lib/auth";
 import ExcelJS from "exceljs";
 
-function convertToCSV(data: any[]): string {
+function convertToCSV(data: Record<string, string | number | boolean | Date | null | undefined>[]): string {
   if (data.length === 0) return "";
 
   const headers = Object.keys(data[0]);
@@ -28,7 +28,7 @@ function convertToCSV(data: any[]): string {
   return csv.join("\n");
 }
 
-async function convertToExcel(data: any[]): Promise<Blob> {
+async function convertToExcel(data: Record<string, string | number | boolean | Date | null | undefined>[]): Promise<Blob> {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "AURA Attendance";
   workbook.created = new Date();
@@ -67,14 +67,14 @@ export async function GET(req: NextRequest) {
     const siteId = req.nextUrl.searchParams.get("siteId");
     const format = req.nextUrl.searchParams.get("format") || "csv";
 
-    let data: any[] = [];
+    let data: Record<string, string | number | boolean | Date | null | undefined>[] = [];
     let filename = "report";
 
     if (type === "daily" && date) {
       const logs = await db
         .select({
           employeeName: employees.name,
-          employeeId: employees.employeeNumber,
+          employeeId: employees.employeeCode,
           checkInTime: attendanceLogs.checkInTime,
           checkOutTime: attendanceLogs.checkOutTime,
           siteName: sites.name,
@@ -104,7 +104,7 @@ export async function GET(req: NextRequest) {
       const logs = await db
         .select({
           employeeName: employees.name,
-          employeeId: employees.employeeNumber,
+          employeeId: employees.employeeCode,
           status: attendanceLogs.status,
           checkInTime: attendanceLogs.checkInTime,
           checkOutTime: attendanceLogs.checkOutTime,
@@ -119,7 +119,7 @@ export async function GET(req: NextRequest) {
           )
         );
 
-      const summary: Record<string, any> = {};
+      const summary: Record<string, { employeeName: string; present: number; absent: number; late: number; workingHours: number }> = {};
       logs.forEach((log) => {
         if (!summary[log.employeeId]) {
           summary[log.employeeId] = {
@@ -140,7 +140,7 @@ export async function GET(req: NextRequest) {
         }
       });
 
-      data = Object.values(summary).map((emp: any) => ({
+      data = Object.values(summary).map((emp) => ({
         Employee: emp.employeeName,
         Present: emp.present,
         Absent: emp.absent,
@@ -153,7 +153,7 @@ export async function GET(req: NextRequest) {
       const logs = await db
         .select({
           employeeName: employees.name,
-          employeeId: employees.employeeNumber,
+          employeeId: employees.employeeCode,
           checkInTime: attendanceLogs.checkInTime,
           checkOutTime: attendanceLogs.checkOutTime,
           status: attendanceLogs.status,
@@ -181,8 +181,8 @@ export async function GET(req: NextRequest) {
       const logs = await db
         .select({
           employeeName: employees.name,
-          employeeId: employees.employeeNumber,
-          governmentId: employees.cpr,
+          employeeId: employees.employeeCode,
+          governmentId: employees.governmentId,
           date: attendanceLogs.date,
           checkInTime: attendanceLogs.checkInTime,
           checkOutTime: attendanceLogs.checkOutTime,

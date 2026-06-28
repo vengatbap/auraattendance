@@ -24,7 +24,7 @@ interface AttendanceRow {
   };
   employee: {
     name: string;
-    employeeNumber: string;
+    employeeCode: string;
   } | null;
   site: {
     name: string;

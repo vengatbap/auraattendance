@@ -54,14 +54,14 @@ interface FaceSample {
 interface FaceRegistrationProps {
   employeeId: string;
   employeeName?: string;
-  employeeNumber?: string;
+  employeeCode?: string;
   onSuccess?: () => void;
 }
 
 export function FaceRegistration({
   employeeId,
   employeeName,
-  employeeNumber,
+  employeeCode,
   onSuccess,
 }: FaceRegistrationProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -134,6 +134,18 @@ export function FaceRegistration({
       const context = canvas.getContext("2d");
       if (!context) throw new Error("Unable to capture this frame.");
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      // Ambient light check
+      const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+      const pixels = imageData.data;
+      let lumaSum = 0;
+      for (let i = 0; i < pixels.length; i += 4) {
+        lumaSum += 0.2126 * pixels[i] + 0.7152 * pixels[i + 1] + 0.0722 * pixels[i + 2];
+      }
+      const avgLuma = lumaSum / (canvas.width * canvas.height);
+      if (avgLuma < 45) {
+        throw new Error(`Lighting is too dark (${Math.round(avgLuma)}/255). Please move to a brighter environment.`);
+      }
 
       setSamples((current) => [
         ...current,
@@ -354,7 +366,7 @@ export function FaceRegistration({
           </div>
           <div className="min-w-0">
             <p className="truncate text-sm font-bold text-white">{employeeName || "Employee"}</p>
-            <p className="text-xs text-slate-500">{employeeNumber || "Face enrollment"}</p>
+            <p className="text-xs text-slate-500">{employeeCode || "Face enrollment"}</p>
           </div>
         </div>
 

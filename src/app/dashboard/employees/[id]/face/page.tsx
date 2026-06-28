@@ -9,7 +9,7 @@ import { toast } from "sonner";
 
 interface Employee {
   id: string;
-  employeeNumber: string;
+  employeeCode: string;
   name: string;
 }
 
@@ -22,16 +22,21 @@ export default function EmployeeFacePage({ params }: { params: Promise<{ id: str
     async function fetchEmployee() {
       try {
         const res = await fetch(`/api/employees/${id}`);
-        if (!res.ok) throw new Error("Failed to fetch employee");
-        setEmployee(await res.json());
+        if (!res.ok) throw new Error();
+        const result = await res.json();
+        if (result.success && result.data) {
+          setEmployee(result.data);
+        } else {
+          throw new Error();
+        }
       } catch {
-        toast.error("Failed to load employee");
+        toast.error("Failed to load employee details");
       } finally {
         setLoading(false);
       }
     }
 
-    fetchEmployee();
+    void fetchEmployee();
   }, [id]);
 
   if (loading) {
@@ -75,7 +80,7 @@ export default function EmployeeFacePage({ params }: { params: Promise<{ id: str
       <FaceRegistration
         employeeId={employee.id}
         employeeName={employee.name}
-        employeeNumber={employee.employeeNumber}
+        employeeCode={employee.employeeCode}
       />
     </div>
   );

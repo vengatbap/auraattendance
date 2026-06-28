@@ -30,7 +30,7 @@ interface AttendanceRow {
   };
   employee: {
     id: string;
-    employeeNumber: string;
+    employeeCode: string;
     name: string;
   } | null;
   site: {
@@ -171,7 +171,7 @@ export default function AttendancePage() {
                     <tr key={log.id} className="border-b border-slate-800 hover:bg-slate-800/50">
                       <td className="px-4 py-3">
                         <div>{employee?.name ?? "Unknown"}</div>
-                        <div className="text-xs text-slate-500">{employee?.employeeNumber ?? log.id}</div>
+                        <div className="text-xs text-slate-500">{employee?.employeeCode ?? log.id}</div>
                       </td>
                       <td className="px-4 py-3 text-slate-400">
                         {site?.name ?? <span className="text-amber-400">Unknown location</span>}

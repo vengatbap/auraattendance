@@ -3,8 +3,8 @@ import { z } from "zod";
 import { employeeService } from "@/services/employee.service";
 
 const createSchema = z.object({
-  employeeNumber: z.string().min(1),
-  cpr: z.string().min(1),
+  employeeCode: z.string().min(1),
+  governmentId: z.string().min(1),
   name: z.string().min(2),
   department: z.string().optional(),
   designation: z.string().optional(),

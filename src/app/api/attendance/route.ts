@@ -18,8 +18,8 @@ export async function GET(req: NextRequest) {
       conditions.push(
         or(
           ilike(employees.name, `%${search}%`),
-          ilike(employees.employeeNumber, `%${search}%`),
-          ilike(employees.cpr, `%${search}%`),
+          ilike(employees.employeeCode, `%${search}%`),
+          ilike(employees.governmentId, `%${search}%`),
           ilike(sites.name, `%${search}%`)
         )
       );
@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
       .offset(offset);
 
     return NextResponse.json(logs);
-  } catch (error) {
+  } catch {
     return NextResponse.json({ error: "Failed to fetch attendance logs" }, { status: 500 });
   }
 }
