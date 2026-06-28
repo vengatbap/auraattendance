@@ -207,11 +207,11 @@ export class AttendanceService {
         // Audit Log
         await AuditService.log({
           organizationId: orgId,
-          userId: employee.id,
+          userId: null,
           action: "check_in",
           entity: "attendance_log",
           entityId: log.id,
-          details: { siteName: siteResult.name, faceScore: match.score },
+          details: { siteName: siteResult.name, faceScore: match.score, employeeId: employee.id, employeeName: employee.name },
         });
 
         return {
@@ -269,11 +269,11 @@ export class AttendanceService {
       // Audit Log
       await AuditService.log({
         organizationId: orgId,
-        userId: employee.id,
+        userId: null,
         action: "check_out",
         entity: "attendance_log",
         entityId: log.id,
-        details: { siteName: siteResult.name, faceScore: match.score },
+        details: { siteName: siteResult.name, faceScore: match.score, employeeId: employee.id, employeeName: employee.name },
       });
 
       return {

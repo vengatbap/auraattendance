@@ -22,65 +22,63 @@ export async function POST(req: Request) {
 
       const { token, name, password } = parsed.data;
 
-      const result = await db.transaction(async (tx) => {
-        // Find invitation
-        const [inv] = await tx
-          .select()
-          .from(userInvitations)
-          .where(eq(userInvitations.token, token))
-          .limit(1);
+      // Find invitation
+      const [inv] = await db
+        .select()
+        .from(userInvitations)
+        .where(eq(userInvitations.token, token))
+        .limit(1);
 
-        if (!inv) {
-          throw new Error("TOKEN_NOT_FOUND");
-        }
+      if (!inv) {
+        throw new Error("TOKEN_NOT_FOUND");
+      }
 
-        if (inv.status !== "pending") {
-          throw new Error("TOKEN_ALREADY_USED");
-        }
+      if (inv.status !== "pending") {
+        throw new Error("TOKEN_ALREADY_USED");
+      }
 
-        if (inv.expiresAt < new Date()) {
-          // Update status to expired
-          await tx
-            .update(userInvitations)
-            .set({ status: "expired" })
-            .where(eq(userInvitations.id, inv.id));
-          throw new Error("TOKEN_EXPIRED");
-        }
-
-        // Check if user already exists
-        const [existingUser] = await tx
-          .select()
-          .from(users)
-          .where(eq(users.email, inv.email))
-          .limit(1);
-
-        if (existingUser) {
-          throw new Error("USER_ALREADY_EXISTS");
-        }
-
-        // Hash password
-        const passwordHash = await bcrypt.hash(password, 12);
-
-        // Create the admin user
-        const [newUser] = await tx
-          .insert(users)
-          .values({
-            organizationId: inv.organizationId,
-            email: inv.email,
-            passwordHash,
-            role: "admin",
-            name,
-          })
-          .returning();
-
-        // Update invitation status to accepted
-        await tx
+      if (inv.expiresAt < new Date()) {
+        // Update status to expired
+        await db
           .update(userInvitations)
-          .set({ status: "accepted" })
+          .set({ status: "expired" })
           .where(eq(userInvitations.id, inv.id));
+        throw new Error("TOKEN_EXPIRED");
+      }
 
-        return { newUser, inv };
-      });
+      // Check if user already exists
+      const [existingUser] = await db
+        .select()
+        .from(users)
+        .where(eq(users.email, inv.email))
+        .limit(1);
+
+      if (existingUser) {
+        throw new Error("USER_ALREADY_EXISTS");
+      }
+
+      // Hash password
+      const passwordHash = await bcrypt.hash(password, 12);
+
+      // Create the admin user
+      const [newUser] = await db
+        .insert(users)
+        .values({
+          organizationId: inv.organizationId,
+          email: inv.email,
+          passwordHash,
+          role: "admin",
+          name,
+        })
+        .returning();
+
+      // Update invitation status to accepted
+      await db
+        .update(userInvitations)
+        .set({ status: "accepted" })
+        .where(eq(userInvitations.id, inv.id));
+
+      const result = { newUser, inv };
 
       // Audit log acceptance
       void AuditService.log({

@@ -40,58 +40,55 @@ export async function POST(req: Request) {
 
       const { organizationName, organizationSlug, ownerName, ownerEmail, ownerPassword } = parsed.data;
 
-      // Use a single database transaction for atomic safety
-      const signupResult = await db.transaction(async (tx) => {
-        // Check organization slug uniqueness
-        const existingOrg = await tx
-          .select()
-          .from(organizations)
-          .where(eq(organizations.slug, organizationSlug))
-          .limit(1);
+      // Check organization slug uniqueness
+      const existingOrg = await db
+        .select()
+        .from(organizations)
+        .where(eq(organizations.slug, organizationSlug))
+        .limit(1);
 
-        if (existingOrg.length > 0) {
-          throw new Error("SLUG_ALREADY_EXISTS");
-        }
+      if (existingOrg.length > 0) {
+        throw new Error("SLUG_ALREADY_EXISTS");
+      }
 
-        // Check user email uniqueness
-        const existingUser = await tx
-          .select()
-          .from(users)
-          .where(eq(users.email, ownerEmail))
-          .limit(1);
+      // Check user email uniqueness
+      const existingUser = await db
+        .select()
+        .from(users)
+        .where(eq(users.email, ownerEmail))
+        .limit(1);
 
-        if (existingUser.length > 0) {
-          throw new Error("EMAIL_ALREADY_EXISTS");
-        }
+      if (existingUser.length > 0) {
+        throw new Error("EMAIL_ALREADY_EXISTS");
+      }
 
-        // Create organization
-        const [org] = await tx
-          .insert(organizations)
-          .values({
-            name: organizationName,
-            slug: organizationSlug,
-            subscriptionPlan: "trial",
-            trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // 14-day trial
-          })
-          .returning();
+      // Create organization
+      const [org] = await db
+        .insert(organizations)
+        .values({
+          name: organizationName,
+          slug: organizationSlug,
+          subscriptionPlan: "trial",
+          trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // 14-day trial
+        })
+        .returning();
 
-        // Hash owner password
-        const passwordHash = await bcrypt.hash(ownerPassword, 12);
+      // Hash owner password
+      const passwordHash = await bcrypt.hash(ownerPassword, 12);
 
-        // Create owner admin
-        const [owner] = await tx
-          .insert(users)
-          .values({
-            organizationId: org.id,
-            email: ownerEmail,
-            passwordHash,
-            role: "super_admin",
-            name: ownerName,
-          })
-          .returning();
+      // Create owner admin
+      const [owner] = await db
+        .insert(users)
+        .values({
+          organizationId: org.id,
+          email: ownerEmail,
+          passwordHash,
+          role: "super_admin",
+          name: ownerName,
+        })
+        .returning();
 
-        return { org, owner };
-      });
+      const signupResult = { org, owner };
 
       // Log audit events outside transaction to keep transaction block fast
       void AuditService.log({
