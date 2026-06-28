@@ -127,3 +127,35 @@
     @apply font-sans;
     }
 }
+
+@media print {
+  aside,
+  header,
+  nav,
+  button,
+  .no-print {
+    display: none !important;
+  }
+  body,
+  main,
+  .print-content {
+    background: #ffffff !important;
+    color: #000000 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    position: static !important;
+    overflow: visible !important;
+  }
+  div, main, section, article {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+  }
+  .card {
+    border: 1px solid #e2e8f0 !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+  }
+}

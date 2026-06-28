@@ -28,7 +28,7 @@ function convertToCSV(data: Record<string, string | number | boolean | Date | nu
   return csv.join("\n");
 }
 
-async function convertToExcel(data: Record<string, string | number | boolean | Date | null | undefined>[]): Promise<Blob> {
+async function convertToExcel(data: Record<string, string | number | boolean | Date | null | undefined>[]): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "AURA Attendance";
   workbook.created = new Date();
@@ -51,16 +51,17 @@ async function convertToExcel(data: Record<string, string | number | boolean | D
   worksheet.views = [{ state: "frozen", ySplit: 1 }];
 
   const buffer = await workbook.xlsx.writeBuffer();
-  return new Blob([buffer], {
-    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  });
+  return Buffer.from(buffer);
 }
 
 export async function GET(req: NextRequest) {
   try {
     const session = await getSession();
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!session || !session.organizationId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
+    const orgId = session.organizationId;
     const type = req.nextUrl.searchParams.get("type") || "daily";
     const date = req.nextUrl.searchParams.get("date");
     const month = req.nextUrl.searchParams.get("month");
@@ -69,6 +70,8 @@ export async function GET(req: NextRequest) {
 
     let data: Record<string, string | number | boolean | Date | null | undefined>[] = [];
     let filename = "report";
+
+    const filterSite = siteId && siteId !== "all" ? eq(attendanceLogs.siteId, siteId) : undefined;
 
     if (type === "daily" && date) {
       const logs = await db
@@ -82,7 +85,13 @@ export async function GET(req: NextRequest) {
         .from(attendanceLogs)
         .innerJoin(employees, eq(employees.id, attendanceLogs.employeeId))
         .leftJoin(sites, eq(sites.id, attendanceLogs.siteId))
-        .where(and(eq(attendanceLogs.date, date), siteId ? eq(attendanceLogs.siteId, siteId) : undefined));
+        .where(
+          and(
+            eq(attendanceLogs.organizationId, orgId),
+            eq(attendanceLogs.date, date),
+            filterSite
+          )
+        );
 
       data = logs.map((log) => ({
         Employee: log.employeeName,
@@ -113,9 +122,10 @@ export async function GET(req: NextRequest) {
         .innerJoin(employees, eq(employees.id, attendanceLogs.employeeId))
         .where(
           and(
+            eq(attendanceLogs.organizationId, orgId),
             gte(attendanceLogs.date, startDate),
             lte(attendanceLogs.date, endDate),
-            siteId ? eq(attendanceLogs.siteId, siteId) : undefined
+            filterSite
           )
         );
 
@@ -162,7 +172,13 @@ export async function GET(req: NextRequest) {
         .from(attendanceLogs)
         .innerJoin(employees, eq(employees.id, attendanceLogs.employeeId))
         .leftJoin(sites, eq(sites.id, attendanceLogs.siteId))
-        .where(and(eq(attendanceLogs.date, date), siteId ? eq(attendanceLogs.siteId, siteId) : undefined));
+        .where(
+          and(
+            eq(attendanceLogs.organizationId, orgId),
+            eq(attendanceLogs.date, date),
+            filterSite
+          )
+        );
 
       data = logs.map((log) => ({
         Site: log.siteName || "-",
@@ -178,6 +194,10 @@ export async function GET(req: NextRequest) {
 
       filename = `site-attendance-${date}`;
     } else if (type === "employee") {
+      const parsedYear = month ? parseInt(month.split("-")[0]) : new Date().getFullYear();
+      const parsedMonth = month ? parseInt(month.split("-")[1]) : new Date().getMonth() + 1;
+      const endLimitDate = new Date(parsedYear, parsedMonth, 0).toISOString().split("T")[0];
+
       const logs = await db
         .select({
           employeeName: employees.name,
@@ -194,16 +214,17 @@ export async function GET(req: NextRequest) {
         .leftJoin(sites, eq(sites.id, attendanceLogs.siteId))
         .where(
           and(
+            eq(attendanceLogs.organizationId, orgId),
             month ? gte(attendanceLogs.date, `${month}-01`) : undefined,
-            month ? lte(attendanceLogs.date, new Date(parseInt(month.split("-")[0]), parseInt(month.split("-")[1]), 0).toISOString().split("T")[0]) : undefined,
-            siteId ? eq(attendanceLogs.siteId, siteId) : undefined
+            month ? lte(attendanceLogs.date, endLimitDate) : undefined,
+            filterSite
           )
         );
 
       data = logs.map((log) => ({
         Employee: log.employeeName,
         "Employee ID": log.employeeId,
-        "Government ID": log.governmentId,
+        "Government ID": log.governmentId || "-",
         Date: log.date,
         Site: log.siteName || "-",
         Status: log.status,
@@ -215,7 +236,7 @@ export async function GET(req: NextRequest) {
     }
 
     const isExcel = format === "excel" || format === "xlsx";
-    const content = isExcel ? await convertToExcel(data) : convertToCSV(data);
+    const content = isExcel ? new Uint8Array(await convertToExcel(data)) : convertToCSV(data);
     const mimeType = isExcel
       ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
       : "text/csv; charset=utf-8";
