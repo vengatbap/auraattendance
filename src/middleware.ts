@@ -34,6 +34,8 @@ const protectedApiRoutes = [
 
 const publicApiRoutes = [
   "/api/attendance/punch",
+  "/api/attendance/kiosk-sync",
+  "/api/attendance/sync",
 ];
 
 export async function middleware(request: NextRequest) {
