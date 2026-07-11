@@ -4,7 +4,7 @@ import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { loginSession } from "@/lib/auth";
-import { loginSchema } from "@/validators/auth.validator";
+import { loginSchema } from "@/modules/auth/validator/auth.validator";
 
 export async function POST(req: Request) {
   try {

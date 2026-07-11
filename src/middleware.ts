@@ -21,13 +21,8 @@ const protectedApiRoutes = [
   "/api/audit-logs",
   "/api/attendance",
   "/api/attendance/adjust",
-  "/api/attendance/checkin",
-  "/api/attendance/checkout",
   "/api/attendance/punch",
-  "/api/attendance/recognize",
-  "/api/faces",
   "/api/faces/register",
-  "/api/faces/[id]",
   "/api/auth/me",
   "/api/attendance/summary",
 ];

@@ -1,6 +1,19 @@
 import { pgTable, varchar, text, timestamp, jsonb, doublePrecision, uuid, date, integer, boolean, index } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
+export type Status = "ACTIVE" | "INACTIVE" | "ARCHIVED";
+
+export const auditColumns = {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id"),
+  status: varchar("status", { length: 30 }).$type<Status>().default("ACTIVE"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  deletedAt: timestamp("deleted_at"),
+  createdBy: uuid("created_by"),
+  updatedBy: uuid("updated_by"),
+};
+
 export const organizations = pgTable("organizations", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: varchar("name", { length: 255 }).notNull(),
@@ -59,6 +72,7 @@ export const users = pgTable("users", {
   passwordHash: text("password_hash").notNull(),
   role: varchar("role", { length: 50 }).notNull().default("admin"), // "super_admin", "admin"
   name: varchar("name", { length: 255 }).notNull(),
+  isPlatformUser: boolean("is_platform_user").default(false).notNull(),
   resetPasswordToken: text("reset_password_token"),
   resetPasswordExpiresAt: timestamp("reset_password_expires_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -261,6 +275,19 @@ export const sessions = pgTable("sessions", {
 }, (table) => [
   index("sessions_organization_id_idx").on(table.organizationId),
   index("sessions_user_id_idx").on(table.userId),
+]);
+
+export const subscriptions = pgTable("subscriptions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }),
+  plan: varchar("plan", { length: 50 }).notNull(), // "trial", "standard", "enterprise"
+  status: varchar("status", { length: 50 }).notNull().default("active"),
+  trialEndsAt: timestamp("trial_ends_at"),
+  startsAt: timestamp("starts_at").defaultNow(),
+  endsAt: timestamp("ends_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("subscriptions_organization_id_idx").on(table.organizationId),
 ]);
 
 export const employeeRelations = relations(employees, ({ many, one }) => ({
