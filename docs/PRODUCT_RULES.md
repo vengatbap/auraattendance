@@ -1,4 +1,16 @@
-> **Aura Attendance exists to make employee attendance effortless, accurate, and trustworthy. Every feature must directly improve attendance speed, simplicity, accuracy, or administration. If it doesn't, it belongs in a future version—not in V1.**
+## Aura Product Principles
+
+> **Aura Attendance exists to solve attendance.**
+> 
+> **Every feature must make attendance:**
+> - **Faster**
+> - **Simpler**
+> - **More accurate**
+> - **Easier to manage**
+> 
+> **If it doesn't improve attendance, it doesn't belong in V1.**
+
+---
 
 # PRODUCT_RULES.md
 
@@ -28,7 +40,7 @@ This document defines the core product philosophy and design principles for Aura
 
 ---
 
-## core Attendance Modules
+## Core Attendance Modules
 
 ### 1. Attendance Dashboard
 Focuses on operational check-ins:
