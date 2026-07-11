@@ -40,7 +40,7 @@ This document defines the core product philosophy and design principles for Aura
 
 ## Core Attendance Modules
 
-### 1. Attendance Overview (Dashboard)
+### 1. Attendance Dashboard
 Focuses on operational check-ins:
 - Today's Status Summary
 - Who's Present
@@ -49,7 +49,7 @@ Focuses on operational check-ins:
 - Who's Outside Radius
 
 ### 2. Operations Inbox
-Unified dashboard checklist for actions that need immediate admin resolution:
+Unified dashboard checklist for actions that need immediate admin resolution (Exceptions only):
 - 🔴 Missing Checkout
 - 🟠 Outside Radius
 - 🟡 Duplicate Punch
