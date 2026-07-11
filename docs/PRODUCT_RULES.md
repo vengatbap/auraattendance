@@ -1,14 +1,12 @@
-## Aura Product Principles
+# Aura Attendance
 
-> **Aura Attendance exists to solve attendance.**
-> 
-> **Every feature must make attendance:**
-> - **Faster**
-> - **Simpler**
-> - **More accurate**
-> - **Easier to manage**
-> 
-> **If it doesn't improve attendance, it doesn't belong in V1.**
+## Mission
+Build the fastest, simplest, and most trusted attendance platform.
+
+An employee should complete attendance in under 5 seconds.
+An administrator should solve daily attendance issues in under 5 minutes.
+
+Every feature must improve one of these two goals. If it doesn't, it belongs in a future version.
 
 ---
 
@@ -42,7 +40,7 @@ This document defines the core product philosophy and design principles for Aura
 
 ## Core Attendance Modules
 
-### 1. Attendance Dashboard
+### 1. Attendance Overview (Dashboard)
 Focuses on operational check-ins:
 - Today's Status Summary
 - Who's Present
@@ -50,17 +48,17 @@ Focuses on operational check-ins:
 - Who's Missing
 - Who's Outside Radius
 
-### 2. Live Attendance Feed
+### 2. Operations Inbox
+Unified dashboard checklist for actions that need immediate admin resolution:
+- 🔴 Missing Checkout
+- 🟠 Outside Radius
+- 🟡 Duplicate Punch
+- 🔵 Offline Punches
+- ⚪ Face Re-enrollment Needed
+
+### 3. Live Attendance Feed
 A real-time ticker showing punches as they occur:
 - `08:01` · `Ahmed` · `Checked In` · `SEEF` · `✔`
-
-### 3. Attendance Issues Board
-A single page listing anomalies requiring administrator attention:
-- Duplicate Face Embeddings
-- Missing checkout punches
-- Out-of-radius check-ins
-- Low biometric confidence scores
-- Offline Sync Queues
 
 ### 4. Face Center
 Biometrics enrollment management:

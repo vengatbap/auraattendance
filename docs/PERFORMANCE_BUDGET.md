@@ -4,17 +4,18 @@ This document defines the strict performance targets and constraints for Aura At
 
 ## 1. Performance Targets
 
-All pages and API endpoints must conform to these latency and bundle size budgets:
+All pages and API endpoints must conform to these latency budgets:
 
 | Item | Target | Description |
 | :--- | :--- | :--- |
 | **First Load JS** | `< 180 KB` | Total initial JavaScript payload sent to client |
-| **Time to Interactive** | `< 2 s` | Time before the page is fully interactive |
-| **Attendance Page** | `< 1 s` | Loader check-in/checkout page initial paint |
-| **Dashboard** | `< 1.5 s` | Admin workspace loading duration |
-| **API Response** | `< 300 ms` | Core server response latency (except biometrics matching) |
-| **Face Match** | `< 2 s` | Server-side cosine similarity check & verify |
-| **Attendance Punch** | `< 5 s` | End-to-end punch cycle (camera read, GPS, server punch) |
+| **Login** | `< 1 sec` | Login request and session verification |
+| **Overview (Dashboard)**| `< 1.5 sec` | Admin overview screen loading time |
+| **Attendance Page** | `< 1 sec` | Kiosk scanner page loading time |
+| **Face Detection** | `< 2 sec` | Browser-level facial boundary extraction |
+| **Attendance Punch** | `< 5 sec` | End-to-end punch cycle (capture, geofence, server write) |
+| **Employee Search** | `< 300 ms` | Search filter responsiveness on employees list |
+| **Reports** | `< 2 sec` | Export data generation and spreadsheet download |
 
 ---
 
