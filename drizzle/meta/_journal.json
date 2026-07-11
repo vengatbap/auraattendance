@@ -57,6 +57,13 @@
       "when": 1782557950109,
       "tag": "0007_pretty_domino",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1783787144215,
+      "tag": "0008_acoustic_mad_thinker",
+      "breakpoints": true
     }
   ]
 }
