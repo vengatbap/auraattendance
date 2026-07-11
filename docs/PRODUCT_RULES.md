@@ -1,3 +1,5 @@
+> **Aura Attendance exists to make employee attendance effortless, accurate, and trustworthy. Every feature must directly improve attendance speed, simplicity, accuracy, or administration. If it doesn't, it belongs in a future version—not in V1.**
+
 # PRODUCT_RULES.md
 
 This document defines the core product philosophy and design principles for Aura Attendance. Every developer and AI agent must read and follow these rules.
