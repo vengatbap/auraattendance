@@ -1,4 +1,4 @@
-export type UserRole = "super_admin" | "admin";
+export type UserRole = "super_admin" | "admin" | "manager" | "viewer";
 export type EmployeeStatus = "active" | "inactive" | "resigned";
 export type AttendanceStatus = "present" | "late" | "absent";
 export type SiteStatus = "active" | "inactive";

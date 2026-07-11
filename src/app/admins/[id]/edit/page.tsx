@@ -9,7 +9,7 @@ interface Admin {
   id: string;
   email: string;
   name: string;
-  role: UserRole;
+  role: "admin" | "manager" | "viewer";
 }
 
 export default function EditAdminPage({ params }: { params: { id: string } }) {

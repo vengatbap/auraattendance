@@ -1,4 +1,4 @@
-export type UserRole = "super_admin" | "admin";
+export type UserRole = "super_admin" | "admin" | "manager" | "viewer";
 
 export type PermissionAction =
   | "manage_organization"
@@ -10,4 +10,8 @@ export type PermissionAction =
   | "view_audit_logs"
   | "view_reports"
   | "manage_api_keys"
-  | "manage_settings";
+  | "manage_settings"
+  | "view_dashboard"
+  | "view_user"
+  | "create_user"
+  | "delete_user";

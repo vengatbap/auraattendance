@@ -22,7 +22,7 @@ const adminSchema = z.object({
   email: z.string().email("Invalid email"),
   name: z.string().min(2, "Name must be at least 2 characters"),
   password: z.string().min(6, "Password must be at least 6 characters").optional().or(z.literal("")),
-  role: z.enum(["admin", "super_admin"]),
+  role: z.enum(["admin", "manager", "viewer"]),
 });
 
 type AdminFormData = z.infer<typeof adminSchema>;
@@ -153,8 +153,11 @@ export function AdminForm({ initialData, isEdit }: AdminFormProps) {
                       <SelectItem value="admin" className="text-slate-100">
                         Administrator
                       </SelectItem>
-                      <SelectItem value="super_admin" className="text-slate-100">
-                        Super Administrator
+                      <SelectItem value="manager" className="text-slate-100">
+                        Manager
+                      </SelectItem>
+                      <SelectItem value="viewer" className="text-slate-100">
+                        Viewer
                       </SelectItem>
                     </SelectContent>
                   </Select>

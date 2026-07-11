@@ -83,7 +83,7 @@ export async function POST(req: Request) {
           organizationId: org.id,
           email: ownerEmail,
           passwordHash,
-          role: "super_admin",
+          role: "admin",
           name: ownerName,
         })
         .returning();

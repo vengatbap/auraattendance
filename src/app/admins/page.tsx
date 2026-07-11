@@ -99,12 +99,18 @@ export default function AdminsPage() {
                       <td className="py-3 px-4">
                         <span
                           className={`px-2 py-1 rounded text-xs font-semibold ${
-                            admin.role === "super_admin"
-                              ? "bg-red-500/20 text-red-400"
-                              : "bg-blue-500/20 text-blue-400"
+                            admin.role === "admin"
+                              ? "bg-blue-500/20 text-blue-400"
+                              : admin.role === "manager"
+                              ? "bg-purple-500/20 text-purple-400"
+                              : "bg-slate-500/20 text-slate-400"
                           }`}
                         >
-                          {admin.role === "super_admin" ? "Super Admin" : "Admin"}
+                          {admin.role === "admin"
+                            ? "Admin"
+                            : admin.role === "manager"
+                            ? "Manager"
+                            : "Viewer"}
                         </span>
                       </td>
                       <td className="py-3 px-4 text-slate-400">
