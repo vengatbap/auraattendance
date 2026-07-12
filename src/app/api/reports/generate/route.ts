@@ -7,7 +7,7 @@ import { getSession } from "@/lib/auth";
 export async function GET(req: NextRequest) {
   try {
     const session = await getSession();
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!session || !session.organizationId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const type = req.nextUrl.searchParams.get("type") || "daily";
     const date = req.nextUrl.searchParams.get("date");
@@ -27,7 +27,13 @@ export async function GET(req: NextRequest) {
         .from(attendanceLogs)
         .innerJoin(employees, eq(employees.id, attendanceLogs.employeeId))
         .leftJoin(sites, eq(sites.id, attendanceLogs.siteId))
-        .where(and(eq(attendanceLogs.date, date), siteId ? eq(attendanceLogs.siteId, siteId) : undefined));
+        .where(
+          and(
+            eq(attendanceLogs.organizationId, session.organizationId),
+            eq(attendanceLogs.date, date),
+            siteId ? eq(attendanceLogs.siteId, siteId) : undefined
+          )
+        );
 
       return NextResponse.json({
         type: "daily",
@@ -59,6 +65,7 @@ export async function GET(req: NextRequest) {
         .innerJoin(employees, eq(employees.id, attendanceLogs.employeeId))
         .where(
           and(
+            eq(attendanceLogs.organizationId, session.organizationId),
             gte(attendanceLogs.date, startDate),
             lte(attendanceLogs.date, endDate),
             siteId ? eq(attendanceLogs.siteId, siteId) : undefined
@@ -112,7 +119,12 @@ export async function GET(req: NextRequest) {
         .from(attendanceLogs)
         .innerJoin(employees, eq(employees.id, attendanceLogs.employeeId))
         .leftJoin(sites, eq(sites.id, attendanceLogs.siteId))
-        .where(eq(attendanceLogs.date, date));
+        .where(
+          and(
+            eq(attendanceLogs.organizationId, session.organizationId),
+            eq(attendanceLogs.date, date)
+          )
+        );
 
       // Group by site
       const summary: Record<string, { siteName: string; siteId: string | null; todaysAttendance: number; employees: string[]; totalHours: number }> = {};

@@ -1,28 +1,9 @@
-import { db } from "@/db";
-import { organizations, users, employees, attendanceLogs } from "@/db/schema";
-import { sql } from "drizzle-orm";
+import { organizationRepository } from "@/modules/organization/repository/organization.repository";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Building2, Users, Users2, Clock, ShieldAlert, CheckCircle2 } from "lucide-react";
 
 async function getStats() {
-  const [orgCount, userCount, employeeCount, punchCount, planBreakdown] = await Promise.all([
-    db.select({ count: sql<number>`count(*)` }).from(organizations).then((res) => Number(res[0].count)),
-    db.select({ count: sql<number>`count(*)` }).from(users).then((res) => Number(res[0].count)),
-    db.select({ count: sql<number>`count(*)` }).from(employees).then((res) => Number(res[0].count)),
-    db.select({ count: sql<number>`count(*)` }).from(attendanceLogs).then((res) => Number(res[0].count)),
-    db.select({ plan: organizations.subscriptionPlan, count: sql<number>`count(*)` }).from(organizations).groupBy(organizations.subscriptionPlan),
-  ]);
-
-  return {
-    orgCount,
-    userCount,
-    employeeCount,
-    punchCount,
-    plans: planBreakdown.reduce((acc, curr) => {
-      acc[curr.plan] = Number(curr.count);
-      return acc;
-    }, {} as Record<string, number>),
-  };
+  return organizationRepository.getGlobalSystemStats();
 }
 
 export default async function AdminDashboardPage() {

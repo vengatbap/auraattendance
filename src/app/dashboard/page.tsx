@@ -1,6 +1,4 @@
-import { db } from "@/db";
-import { users, sites, employees, attendanceLogs, faceProfiles, organizations } from "@/db/schema";
-import { and, eq, isNull, sql, desc } from "drizzle-orm";
+import { attendanceRepository } from "@/modules/attendance/repository/attendance.repository";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -21,7 +19,7 @@ import {
 async function getDashboardData(orgId: string) {
   const today = toDateString();
 
-  const [
+  const {
     adminCount,
     siteCount,
     employeeCount,
@@ -29,52 +27,7 @@ async function getDashboardData(orgId: string) {
     recentPunches,
     faceCount,
     orgDetails,
-  ] = await Promise.all([
-    db
-      .select({ count: sql<number>`count(*)` })
-      .from(users)
-      .where(eq(users.organizationId, orgId))
-      .then((res) => Number(res[0].count)),
-    db
-      .select({ count: sql<number>`count(*)` })
-      .from(sites)
-      .where(and(eq(sites.organizationId, orgId), isNull(sites.deletedAt)))
-      .then((res) => Number(res[0].count)),
-    db
-      .select({ count: sql<number>`count(*)` })
-      .from(employees)
-      .where(and(eq(employees.organizationId, orgId), isNull(employees.deletedAt)))
-      .then((res) => Number(res[0].count)),
-    db
-      .select()
-      .from(attendanceLogs)
-      .where(and(eq(attendanceLogs.organizationId, orgId), eq(attendanceLogs.date, today))),
-    db
-      .select({
-        id: attendanceLogs.id,
-        employeeName: employees.name,
-        employeeCode: employees.employeeCode,
-        checkInTime: attendanceLogs.checkInTime,
-        checkOutTime: attendanceLogs.checkOutTime,
-        status: attendanceLogs.status,
-      })
-      .from(attendanceLogs)
-      .innerJoin(employees, eq(attendanceLogs.employeeId, employees.id))
-      .where(eq(attendanceLogs.organizationId, orgId))
-      .orderBy(desc(attendanceLogs.createdAt))
-      .limit(5),
-    db
-      .select({ count: sql<number>`count(*)` })
-      .from(faceProfiles)
-      .where(eq(faceProfiles.organizationId, orgId))
-      .then((res) => Number(res[0].count)),
-    db
-      .select()
-      .from(organizations)
-      .where(eq(organizations.id, orgId))
-      .limit(1)
-      .then((res) => res[0]),
-  ]);
+  } = await attendanceRepository.getDashboardData(orgId, today);
 
   const checkedInToday = todayAttendance.filter((log) => log.checkInTime).length;
   const checkedOutToday = todayAttendance.filter((log) => log.checkOutTime).length;

@@ -44,18 +44,14 @@ export async function GET(req: Request) {
         });
       }
 
-      // Backward compatibility fallback - list all active sites
-      const allActive = await db
-        .select()
-        .from(sites)
-        .where(and(eq(sites.status, "active"), isNull(sites.deletedAt)));
+      // Enforce tenant organization context is provided
       return NextResponse.json({
-        success: true,
-        message: "Active sites retrieved globally",
-        data: allActive.map((s) => mapToSiteDTO(s as unknown as SiteEntity)),
+        success: false,
+        message: "Organization identifier is required.",
+        data: [],
         meta: null,
-        errors: null,
-      });
+        errors: { global: ["Organization identifier is required"] },
+      }, { status: 400 });
     } catch (err: unknown) {
       const error = err as Error;
       logger.error("Failed to list sites", error);

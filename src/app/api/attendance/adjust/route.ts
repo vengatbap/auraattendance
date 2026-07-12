@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { attendanceAdjustments, attendanceLogs, auditLogs, employees } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 import { getSession } from "@/lib/auth";
 
@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
   try {
     // Verify authentication
     const session = await getSession();
-    if (!session) {
+    if (!session || !session.organizationId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -35,7 +35,12 @@ export async function POST(req: NextRequest) {
     const [attendanceLog] = await db
       .select()
       .from(attendanceLogs)
-      .where(eq(attendanceLogs.id, attendanceLogId));
+      .where(
+        and(
+          eq(attendanceLogs.id, attendanceLogId),
+          eq(attendanceLogs.organizationId, session.organizationId)
+        )
+      );
 
     if (!attendanceLog) {
       return NextResponse.json({ error: "Attendance log not found" }, { status: 404 });
