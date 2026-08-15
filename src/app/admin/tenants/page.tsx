@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Loader, Search, RefreshCw, AlertTriangle, ShieldCheck } from "lucide-react";
+import { Loader, Search, RefreshCw, AlertTriangle, ShieldCheck, CheckSquare, Square } from "lucide-react";
+import { FeatureRegistry } from "@/lib/features";
 
 interface Tenant {
   id: string;
@@ -14,6 +15,8 @@ interface Tenant {
   subscriptionPlan: string;
   createdAt: string;
   trialEndsAt: string | null;
+  featureFlags: Record<string, boolean>;
+  lastActivityAt: string;
 }
 
 export default function AdminTenantsPage() {
@@ -22,13 +25,13 @@ export default function AdminTenantsPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [submittingId, setSubmittingId] = useState<string | null>(null);
 
-  async function fetchTenants() {
-    setLoading(true);
+  async function fetchTenants(showLoading = false) {
+    if (showLoading) setLoading(true);
     try {
       const res = await fetch("/api/admin/tenants");
       if (!res.ok) throw new Error();
-      const data = await res.json();
-      setTenants(data);
+      const body = await res.json();
+      setTenants(body.data || []);
     } catch {
       toast.error("Failed to load tenants list");
     } finally {
@@ -37,7 +40,8 @@ export default function AdminTenantsPage() {
   }
 
   useEffect(() => {
-    fetchTenants();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchTenants(false);
   }, []);
 
   async function updatePlan(id: string, plan: "trial" | "standard" | "enterprise") {
@@ -77,11 +81,42 @@ export default function AdminTenantsPage() {
     }
   }
 
+  async function toggleFeature(tenantId: string, featureKey: string, currentValue: boolean) {
+    const tenant = tenants.find((t) => t.id === tenantId);
+    if (!tenant) return;
+
+    const updatedFlags = {
+      ...(tenant.featureFlags || {}),
+      [featureKey]: !currentValue,
+    };
+
+    setSubmittingId(tenantId);
+    try {
+      const res = await fetch("/api/admin/features", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          organizationId: tenantId,
+          featureFlags: updatedFlags,
+        }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success(`Feature flag "${featureKey}" updated successfully`);
+      fetchTenants();
+    } catch {
+      toast.error("Failed to update feature flags");
+    } finally {
+      setSubmittingId(null);
+    }
+  }
+
   const filteredTenants = tenants.filter((t) =>
     [t.name, t.slug, t.status, t.subscriptionPlan].some((val) =>
       val.toLowerCase().includes(searchTerm.toLowerCase())
     )
   );
+
+  const featuresList = Object.values(FeatureRegistry);
 
   return (
     <div className="space-y-6">
@@ -91,7 +126,7 @@ export default function AdminTenantsPage() {
           <p className="text-zinc-500 mt-1 text-sm">Manage business tenants and subscription packaging rules.</p>
         </div>
         <Button
-          onClick={fetchTenants}
+          onClick={() => fetchTenants(true)}
           variant="outline"
           className="border-zinc-800 text-zinc-300 hover:bg-zinc-900 cursor-pointer"
         >
@@ -131,9 +166,10 @@ export default function AdminTenantsPage() {
                   <tr>
                     <th className="py-3 px-6">Tenant Info</th>
                     <th className="py-3 px-6">Link Slug</th>
-                    <th className="py-3 px-6">Created Date</th>
+                    <th className="py-3 px-6">Last Activity</th>
                     <th className="py-3 px-6">Status</th>
                     <th className="py-3 px-6">Subscription Plan</th>
+                    <th className="py-3 px-6">Feature Flags</th>
                     <th className="py-3 px-6 text-right">Actions</th>
                   </tr>
                 </thead>
@@ -145,7 +181,9 @@ export default function AdminTenantsPage() {
                         <div className="text-[10px] text-zinc-600 font-mono mt-0.5">{t.id}</div>
                       </td>
                       <td className="py-4 px-6 text-zinc-400 font-mono">/{t.slug}</td>
-                      <td className="py-4 px-6 text-zinc-400">{new Date(t.createdAt).toLocaleDateString()}</td>
+                      <td className="py-4 px-6 text-zinc-400">
+                        {t.lastActivityAt ? new Date(t.lastActivityAt).toLocaleString() : "Never"}
+                      </td>
                       <td className="py-4 px-6">
                         <span
                           className={`inline-flex px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${
@@ -170,9 +208,31 @@ export default function AdminTenantsPage() {
                           {t.subscriptionPlan}
                         </span>
                       </td>
+                      <td className="py-4 px-6">
+                        <div className="flex flex-wrap gap-2 max-w-[200px]">
+                          {featuresList.map((featureKey) => {
+                            const isEnabled = t.featureFlags?.[featureKey] === true;
+                            return (
+                              <button
+                                key={featureKey}
+                                disabled={submittingId !== null}
+                                onClick={() => toggleFeature(t.id, featureKey, isEnabled)}
+                                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-bold border transition-colors cursor-pointer ${
+                                  isEnabled
+                                    ? "bg-amber-500/10 border-amber-500/20 text-amber-400"
+                                    : "bg-zinc-950 border-zinc-900 text-zinc-600 hover:text-zinc-400"
+                                }`}
+                              >
+                                {isEnabled ? <CheckSquare className="size-2" /> : <Square className="size-2" />}
+                                <span>{featureKey}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </td>
                       <td className="py-4 px-6 text-right space-x-1.5 whitespace-nowrap">
                         {/* Plan selection buttons */}
-                        <div className="inline-flex gap-1">
+                        <div className="inline-flex gap-1 mr-2">
                           {(["trial", "standard", "enterprise"] as const).map((plan) => (
                             <Button
                               key={plan}
@@ -184,7 +244,7 @@ export default function AdminTenantsPage() {
                                 t.subscriptionPlan === plan
                                   ? "bg-zinc-800 text-white"
                                   : "text-zinc-500 hover:text-zinc-200"
-                              }`}
+                                }`}
                             >
                               {plan.toUpperCase()}
                             </Button>
@@ -208,6 +268,26 @@ export default function AdminTenantsPage() {
                           ) : (
                             <span className="flex items-center gap-1"><ShieldCheck className="w-3 h-3" /> Activate</span>
                           )}
+                        </Button>
+                        <Button
+                          onClick={async () => {
+                            setSubmittingId(t.id);
+                            try {
+                              const res = await fetch(`/api/admin/tenants/${t.id}/enter`, { method: "POST" });
+                              if (!res.ok) throw new Error();
+                              toast.success(`Entered support mode for ${t.name}`);
+                              window.location.href = "/dashboard";
+                            } catch {
+                              toast.error("Failed to enter support mode");
+                              setSubmittingId(null);
+                            }
+                          }}
+                          disabled={submittingId !== null || t.status !== "active"}
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-3 text-[9px] font-black rounded-lg uppercase tracking-wider cursor-pointer border text-blue-500 hover:bg-blue-500/10 border-blue-500/20"
+                        >
+                          Support Mode
                         </Button>
                       </td>
                     </tr>

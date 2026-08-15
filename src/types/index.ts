@@ -106,6 +106,10 @@ export interface SessionPayload {
   userId: string;
   role: UserRole;
   organizationId: string | null;
+  isPlatformUser?: boolean;
+  supportTenantId?: string; // Set when platform user explicitly enters a tenant in support mode
+  allowedSiteId?: string;
+  kioskId?: string;
   iat?: number;
   exp?: number;
 }

@@ -1,16 +1,29 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { db } from "@/db";
 import { auditLogs } from "@/db/schema";
-import { desc } from "drizzle-orm";
-
+import { desc, eq } from "drizzle-orm";
 import { getSession } from "@/lib/auth";
-import { and, eq } from "drizzle-orm";
+import { PermissionService } from "@/lib/rbac";
+import { createApiResponse } from "@/lib/api-response";
 
 export async function GET(req: NextRequest) {
   try {
     const session = await getSession();
     if (!session || !session.organizationId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return createApiResponse({
+        success: false,
+        message: "Unauthorized",
+        status: 401,
+      });
+    }
+
+    // RBAC Authorization check
+    if (PermissionService.cannot(session, "user.read")) {
+      return createApiResponse({
+        success: false,
+        message: "Forbidden: insufficient permissions",
+        status: 403,
+      });
     }
 
     const limit = parseInt(req.nextUrl.searchParams.get("limit") || "100");
@@ -24,8 +37,17 @@ export async function GET(req: NextRequest) {
       .limit(limit)
       .offset(offset);
 
-    return NextResponse.json(logs);
+    return createApiResponse({
+      success: true,
+      message: "Audit logs fetched successfully",
+      data: logs,
+    });
   } catch (error) {
-    return NextResponse.json({ error: "Failed to fetch audit logs" }, { status: 500 });
+    console.error("Failed to fetch audit logs:", error);
+    return createApiResponse({
+      success: false,
+      message: "Failed to fetch audit logs",
+      status: 500,
+    });
   }
 }

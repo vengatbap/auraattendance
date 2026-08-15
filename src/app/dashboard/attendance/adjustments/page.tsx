@@ -46,7 +46,8 @@ export default function AttendanceAdjustmentsPage() {
       const today = new Date().toISOString().split("T")[0];
       const res = await fetch(`/api/attendance?limit=100&date=${today}`);
       if (!res.ok) throw new Error("Failed");
-      setRows(await res.json());
+      const body = await res.json();
+      setRows(body.data || body);
     } catch {
       toast.error("Failed to load attendance records");
     } finally {
@@ -55,6 +56,7 @@ export default function AttendanceAdjustmentsPage() {
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchRows();
   }, []);
 

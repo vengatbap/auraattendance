@@ -1,7 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { getSession } from "@/lib/auth";
 import { siteService } from "@/modules/sites/service/site.service";
 import { logger } from "@/lib/logger";
+import { PermissionService } from "@/lib/rbac";
+import { createApiResponse } from "@/lib/api-response";
 
 export async function GET(
   req: NextRequest,
@@ -12,34 +14,36 @@ export async function GET(
     try {
       const session = await getSession();
       if (!session || !session.organizationId) {
-        return NextResponse.json(
-          { success: false, message: "Unauthorized", data: null, meta: null, errors: { global: ["Authentication required"] } },
-          { status: 401 }
-        );
+        return createApiResponse({
+          success: false,
+          message: "Unauthorized",
+          status: 401,
+        });
+      }
+
+      if (PermissionService.cannot(session, "site.read")) {
+        return createApiResponse({
+          success: false,
+          message: "Forbidden: insufficient permissions",
+          status: 403,
+        });
       }
 
       const site = await siteService.getById(id, session.organizationId);
 
-      return NextResponse.json({
+      return createApiResponse({
         success: true,
         message: "Site retrieved successfully",
         data: site,
-        meta: null,
-        errors: null,
       });
     } catch (err: unknown) {
       const error = err as Error;
       logger.error(`Failed to get site ${id}`, error);
-      return NextResponse.json(
-        {
-          success: false,
-          message: error.message || "Failed to retrieve site",
-          data: null,
-          meta: null,
-          errors: { global: [error.message] },
-        },
-        { status: 404 }
-      );
+      return createApiResponse({
+        success: false,
+        message: error.message || "Failed to retrieve site",
+        status: 404,
+      });
     }
   });
 }
@@ -53,35 +57,37 @@ export async function PUT(
     try {
       const session = await getSession();
       if (!session || !session.organizationId) {
-        return NextResponse.json(
-          { success: false, message: "Unauthorized", data: null, meta: null, errors: { global: ["Authentication required"] } },
-          { status: 401 }
-        );
+        return createApiResponse({
+          success: false,
+          message: "Unauthorized",
+          status: 401,
+        });
+      }
+
+      if (PermissionService.cannot(session, "site.update")) {
+        return createApiResponse({
+          success: false,
+          message: "Forbidden: insufficient permissions",
+          status: 403,
+        });
       }
 
       const body = await req.json();
       const updated = await siteService.update(id, session.organizationId, body, session.userId);
 
-      return NextResponse.json({
+      return createApiResponse({
         success: true,
         message: "Site updated successfully",
         data: updated,
-        meta: null,
-        errors: null,
       });
     } catch (err: unknown) {
       const error = err as Error;
       logger.error(`Failed to update site ${id}`, error);
-      return NextResponse.json(
-        {
-          success: false,
-          message: error.message || "Failed to update site",
-          data: null,
-          meta: null,
-          errors: { global: [error.message] },
-        },
-        { status: 400 }
-      );
+      return createApiResponse({
+        success: false,
+        message: error.message || "Failed to update site",
+        status: 400,
+      });
     }
   });
 }
@@ -95,34 +101,35 @@ export async function DELETE(
     try {
       const session = await getSession();
       if (!session || !session.organizationId) {
-        return NextResponse.json(
-          { success: false, message: "Unauthorized", data: null, meta: null, errors: { global: ["Authentication required"] } },
-          { status: 401 }
-        );
+        return createApiResponse({
+          success: false,
+          message: "Unauthorized",
+          status: 401,
+        });
+      }
+
+      if (PermissionService.cannot(session, "site.archive")) {
+        return createApiResponse({
+          success: false,
+          message: "Forbidden: insufficient permissions",
+          status: 403,
+        });
       }
 
       await siteService.delete(id, session.organizationId, session.userId);
 
-      return NextResponse.json({
+      return createApiResponse({
         success: true,
         message: "Site deleted successfully",
-        data: null,
-        meta: null,
-        errors: null,
       });
     } catch (err: unknown) {
       const error = err as Error;
       logger.error(`Failed to delete site ${id}`, error);
-      return NextResponse.json(
-        {
-          success: false,
-          message: error.message || "Failed to delete site",
-          data: null,
-          meta: null,
-          errors: { global: [error.message] },
-        },
-        { status: 400 }
-      );
+      return createApiResponse({
+        success: false,
+        message: error.message || "Failed to delete site",
+        status: 400,
+      });
     }
   });
 }

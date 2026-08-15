@@ -25,6 +25,7 @@ export interface SiteEntity {
   createdAt: Date;
   updatedAt: Date;
   deletedAt: Date | null;
+  version: number;
 }
 
 export function mapToSiteDTO(site: SiteEntity): SiteDTO {

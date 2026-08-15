@@ -24,8 +24,8 @@ export function useFaceRecognition() {
         await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
         await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
         setIsModelLoaded(true);
-      } catch (err: any) {
-        setErrorMessage("Failed to load AI models. " + err.message);
+      } catch (err: unknown) {
+        setErrorMessage("Failed to load AI models. " + (err as Error).message);
       }
     };
     loadModels();
@@ -38,7 +38,7 @@ export function useFaceRecognition() {
         videoRef.current.srcObject = stream;
         setIsCameraReady(true);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       setErrorMessage("Camera access denied or unavailable.");
     }
   };
@@ -66,3 +66,4 @@ export function useFaceRecognition() {
     errorMessage
   };
 }
+

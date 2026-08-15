@@ -16,6 +16,7 @@ export async function GET() {
     email: users.email,
     name: users.name,
     role: users.role,
+    isPlatformUser: users.isPlatformUser,
   }).from(users).where(eq(users.id, session.userId)).limit(1);
 
   const user = userArray[0];

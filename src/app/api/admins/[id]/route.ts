@@ -1,11 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { getSession } from "@/lib/auth";
 import { db } from "@/db";
 import { users } from "@/db/schema";
 import bcrypt from "bcryptjs";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { PermissionService } from "@/modules/permissions/service/permission.service";
+import { PermissionService } from "@/lib/rbac";
+import { createApiResponse } from "@/lib/api-response";
 
 const UpdateAdminSchema = z.object({
   name: z.string().min(2).optional(),
@@ -16,76 +17,118 @@ const UpdateAdminSchema = z.object({
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = await getSession();
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!session || !session.organizationId) {
+      return createApiResponse({
+        success: false,
+        message: "Unauthorized",
+        status: 401,
+      });
+    }
+
+    if (PermissionService.cannot(session, "user.read")) {
+      return createApiResponse({
+        success: false,
+        message: "Forbidden: insufficient permissions",
+        status: 403,
+      });
+    }
 
     const { id } = await params;
     const admin = await db.select().from(users).where(eq(users.id, id)).limit(1);
     if (!admin.length) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
+      return createApiResponse({
+        success: false,
+        message: "User not found",
+        status: 404,
+      });
     }
 
     const targetUser = admin[0];
 
-    // Enforce tenant boundary unless super_admin
-    if (session.role !== "super_admin") {
-      if (targetUser.organizationId !== session.organizationId) {
-        return NextResponse.json({ error: "Forbidden: Cross-tenant access denied" }, { status: 403 });
-      }
-
-      const canView = PermissionService.hasRolePermission(session.role, "view_user");
-      if (!canView) {
-        return NextResponse.json({ error: "Forbidden: Insufficient permissions" }, { status: 403 });
-      }
+    // Enforce tenant boundary unless platform operator
+    if (!session.isPlatformUser && targetUser.organizationId !== session.organizationId) {
+      return createApiResponse({
+        success: false,
+        message: "Forbidden: Cross-tenant access denied",
+        status: 403,
+      });
     }
 
-    return NextResponse.json(targetUser);
+    return createApiResponse({
+      success: true,
+      message: "User fetched successfully",
+      data: targetUser,
+    });
   } catch (error) {
-    return NextResponse.json({ error: "Failed to fetch user" }, { status: 500 });
+    console.error("Failed to fetch user:", error);
+    return createApiResponse({
+      success: false,
+      message: "Failed to fetch user",
+      status: 500,
+    });
   }
 }
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = await getSession();
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!session || !session.organizationId) {
+      return createApiResponse({
+        success: false,
+        message: "Unauthorized",
+        status: 401,
+      });
+    }
+
+    if (PermissionService.cannot(session, "user.update")) {
+      return createApiResponse({
+        success: false,
+        message: "Forbidden: insufficient permissions",
+        status: 403,
+      });
+    }
 
     const { id } = await params;
     const targetAdmin = await db.select().from(users).where(eq(users.id, id)).limit(1);
     
     if (!targetAdmin.length) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
+      return createApiResponse({
+        success: false,
+        message: "User not found",
+        status: 404,
+      });
     }
 
     const targetUser = targetAdmin[0];
 
-    // Enforce tenant boundary unless super_admin
-    if (session.role !== "super_admin") {
-      if (targetUser.organizationId !== session.organizationId) {
-        return NextResponse.json({ error: "Forbidden: Cross-tenant access denied" }, { status: 403 });
-      }
-
-      // Must have create_user to edit users
-      const canEdit = PermissionService.hasRolePermission(session.role, "create_user");
-      if (!canEdit) {
-        return NextResponse.json({ error: "Forbidden: Insufficient permissions" }, { status: 403 });
-      }
-
-      // Prevents manager/viewer from elevating themselves or others
-      if (targetUser.role === "super_admin") {
-        return NextResponse.json({ error: "Forbidden: Cannot edit platform super admin" }, { status: 403 });
-      }
+    // Enforce tenant boundary unless platform operator
+    if (!session.isPlatformUser && targetUser.organizationId !== session.organizationId) {
+      return createApiResponse({
+        success: false,
+        message: "Forbidden: Cross-tenant access denied",
+        status: 403,
+      });
     }
 
     const body = await req.json();
     const result = UpdateAdminSchema.safeParse(body);
 
     if (!result.success) {
-      return NextResponse.json({ error: result.error.issues }, { status: 400 });
+      return createApiResponse({
+        success: false,
+        message: "Validation failed",
+        errors: result.error.issues,
+        status: 400,
+      });
     }
 
     const { name, password, role } = result.data;
+    const currentVersion = targetUser.version ?? 1;
 
-    const updateData: any = { updatedAt: new Date() };
+    const updateData: Partial<typeof users.$inferInsert> = {
+      updatedAt: new Date(),
+      version: currentVersion + 1,
+    };
 
     if (name) updateData.name = name;
     if (role) updateData.role = role;
@@ -93,54 +136,109 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       updateData.passwordHash = await bcrypt.hash(password, 10);
     }
 
-    const updated = await db
+    const [updated] = await db
       .update(users)
       .set(updateData)
-      .where(eq(users.id, id))
+      .where(
+        and(
+          eq(users.id, id),
+          eq(users.version, currentVersion)
+        )
+      )
       .returning();
 
-    return NextResponse.json(updated[0]);
+    if (!updated) {
+      return createApiResponse({
+        success: false,
+        message: "Concurrent update detected. User record has been modified by another process. Please reload and try again.",
+        status: 409,
+      });
+    }
+
+    return createApiResponse({
+      success: true,
+      message: "User updated successfully",
+      data: updated,
+    });
   } catch (error) {
     console.error("Error updating user:", error);
-    return NextResponse.json({ error: "Failed to update user" }, { status: 500 });
+    return createApiResponse({
+      success: false,
+      message: "Failed to update user",
+      status: 500,
+    });
   }
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = await getSession();
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!session || !session.organizationId) {
+      return createApiResponse({
+        success: false,
+        message: "Unauthorized",
+        status: 401,
+      });
+    }
+
+    if (PermissionService.cannot(session, "user.archive")) {
+      return createApiResponse({
+        success: false,
+        message: "Forbidden: insufficient permissions",
+        status: 403,
+      });
+    }
 
     const { id } = await params;
     const targetAdmin = await db.select().from(users).where(eq(users.id, id)).limit(1);
     
     if (!targetAdmin.length) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
+      return createApiResponse({
+        success: false,
+        message: "User not found",
+        status: 404,
+      });
     }
 
     const targetUser = targetAdmin[0];
 
-    // Enforce tenant boundary unless super_admin
-    if (session.role !== "super_admin") {
-      if (targetUser.organizationId !== session.organizationId) {
-        return NextResponse.json({ error: "Forbidden: Cross-tenant access denied" }, { status: 403 });
-      }
-
-      // Must have delete_user to delete users
-      const canDelete = PermissionService.hasRolePermission(session.role, "delete_user");
-      if (!canDelete) {
-        return NextResponse.json({ error: "Forbidden: Insufficient permissions" }, { status: 403 });
-      }
-
-      if (targetUser.role === "super_admin") {
-        return NextResponse.json({ error: "Forbidden: Cannot delete platform super admin" }, { status: 403 });
-      }
+    // Enforce tenant boundary unless platform operator
+    if (!session.isPlatformUser && targetUser.organizationId !== session.organizationId) {
+      return createApiResponse({
+        success: false,
+        message: "Forbidden: Cross-tenant access denied",
+        status: 403,
+      });
     }
 
-    await db.delete(users).where(eq(users.id, id));
-    return NextResponse.json({ success: true });
+    if (targetUser.role === "super_admin") {
+      return createApiResponse({
+        success: false,
+        message: "Forbidden: Cannot delete platform super admin",
+        status: 403,
+      });
+    }
+
+    // Soft delete by updating deletedAt timestamp & status to archive
+    await db
+      .update(users)
+      .set({
+        deletedAt: new Date(),
+        updatedAt: new Date(),
+        version: (targetUser.version ?? 1) + 1,
+      })
+      .where(eq(users.id, id));
+
+    return createApiResponse({
+      success: true,
+      message: "User deleted successfully",
+    });
   } catch (error) {
     console.error("Error deleting user:", error);
-    return NextResponse.json({ error: "Failed to delete user" }, { status: 500 });
+    return createApiResponse({
+      success: false,
+      message: "Failed to delete user",
+      status: 500,
+    });
   }
 }

@@ -2,6 +2,7 @@ import { db } from "@/db";
 import { sites } from "@/db/schema";
 import { and, eq, isNull } from "drizzle-orm";
 import { SiteEntity } from "../types";
+import { ConflictError, NotFoundError } from "@/lib/errors";
 
 export const siteRepository = {
   async findAll(organizationId: string): Promise<SiteEntity[]> {
@@ -76,14 +77,29 @@ export const siteRepository = {
       allowedDevices: "browser" | "kiosk" | "tablet" | "both";
     }>
   ): Promise<SiteEntity> {
+    const current = await this.findById(id, organizationId);
+    if (!current) throw new NotFoundError("Site not found");
+    const currentVersion = current.version ?? 1;
+
     const [result] = await db
       .update(sites)
       .set({
         ...data,
+        version: currentVersion + 1,
         updatedAt: new Date(),
       })
-      .where(and(eq(sites.id, id), eq(sites.organizationId, organizationId)))
+      .where(
+        and(
+          eq(sites.id, id),
+          eq(sites.organizationId, organizationId),
+          eq(sites.version, currentVersion)
+        )
+      )
       .returning();
+
+    if (!result) {
+      throw new ConflictError("Concurrent modification detected. Please reload and try again.");
+    }
     return result as SiteEntity;
   },
 

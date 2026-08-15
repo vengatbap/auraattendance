@@ -1,6 +1,7 @@
 import { db } from "@/db";
 import { organizations, users, employees, attendanceLogs } from "@/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, and } from "drizzle-orm";
+import { ConflictError, NotFoundError } from "@/lib/errors";
 
 export const organizationRepository = {
   async findById(id: string) {
@@ -48,14 +49,28 @@ export const organizationRepository = {
   },
 
   async update(id: string, data: Partial<typeof organizations.$inferInsert>) {
+    const current = await this.findById(id);
+    if (!current) throw new NotFoundError("Organization not found");
+    const currentVersion = current.version ?? 1;
+
     const [result] = await db
       .update(organizations)
       .set({
         ...data,
+        version: currentVersion + 1,
         updatedAt: new Date(),
       })
-      .where(eq(organizations.id, id))
+      .where(
+        and(
+          eq(organizations.id, id),
+          eq(organizations.version, currentVersion)
+        )
+      )
       .returning();
+
+    if (!result) {
+      throw new ConflictError("Concurrent modification detected. Please reload and try again.");
+    }
     return result;
   },
 

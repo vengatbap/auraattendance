@@ -8,6 +8,7 @@ import { attendanceRepository } from "../repository/attendance.repository";
 import { AttendancePunchResult } from "../types";
 import { AttendancePunchInput } from "../validator/attendance.validator";
 import { AuditService } from "@/modules/audit/service/audit.service";
+import { isAllowed } from "@/lib/rate-limit";
 
 export class AttendanceService {
   async punch(
@@ -68,6 +69,11 @@ export class AttendanceService {
         throw new NotFoundError("Active employee profile not found");
       }
 
+      // Biometric Rate Limit: 10 requests / minute / employee
+      if (!isAllowed(`punch:employee:${employee.id}`, 10, 60 * 1000)) {
+        throw new ValidationError("Too many check-in attempts. Please wait a minute.");
+      }
+
       const orgId = employee.organizationId;
       if (!orgId) {
         throw new ValidationError("Employee is not assigned to an organization");
@@ -82,6 +88,14 @@ export class AttendanceService {
 
       if (!orgConfig) {
         throw new ValidationError("Organization configurations not found");
+      }
+
+      if (orgConfig.status === "suspended") {
+        throw new ValidationError("Organization is suspended");
+      }
+
+      if (orgConfig.subscriptionPlan === "trial" && orgConfig.trialEndsAt && new Date() > new Date(orgConfig.trialEndsAt)) {
+        throw new ValidationError("Organization trial has expired");
       }
 
       // Verify face match score matches threshold

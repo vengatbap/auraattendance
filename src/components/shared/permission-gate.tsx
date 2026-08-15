@@ -1,10 +1,10 @@
 import { ReactNode } from "react";
-import { PermissionService } from "@/modules/permissions/service/permission.service";
-import { PermissionAction, UserRole } from "@/modules/permissions/types";
+import { PermissionService, Permission } from "@/lib/rbac";
+import { UserRole } from "@/modules/permissions/types";
 
 interface PermissionGateProps {
   role: UserRole;
-  action: PermissionAction;
+  action: Permission;
   children: ReactNode;
   fallback?: ReactNode;
 }
@@ -18,7 +18,7 @@ export function PermissionGate({
   children,
   fallback = null,
 }: PermissionGateProps) {
-  const allowed = PermissionService.hasRolePermission(role, action);
+  const allowed = PermissionService.can({ role }, action);
   if (!allowed) return <>{fallback}</>;
   return <>{children}</>;
 }

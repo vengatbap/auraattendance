@@ -2,6 +2,7 @@ import { db } from "@/db";
 import { departments } from "@/db/schema";
 import { and, eq, isNull } from "drizzle-orm";
 import { DepartmentEntity } from "../types";
+import { ConflictError, NotFoundError } from "@/lib/errors";
 
 export const departmentRepository = {
   async findAll(organizationId: string): Promise<DepartmentEntity[]> {
@@ -62,14 +63,29 @@ export const departmentRepository = {
       status: "active" | "inactive";
     }>
   ): Promise<DepartmentEntity> {
+    const current = await this.findById(id, organizationId);
+    if (!current) throw new NotFoundError("Department not found");
+    const currentVersion = current.version ?? 1;
+
     const [result] = await db
       .update(departments)
       .set({
         ...data,
+        version: currentVersion + 1,
         updatedAt: new Date(),
       })
-      .where(and(eq(departments.id, id), eq(departments.organizationId, organizationId)))
+      .where(
+        and(
+          eq(departments.id, id),
+          eq(departments.organizationId, organizationId),
+          eq(departments.version, currentVersion)
+        )
+      )
       .returning();
+
+    if (!result) {
+      throw new ConflictError("Concurrent modification detected. Please reload and try again.");
+    }
     return result as DepartmentEntity;
   },
 

@@ -179,7 +179,7 @@ export default function OnboardingPage() {
       // Redirect straight to Face Enrollment for the newly created employee
       router.push(`/dashboard/employees/${savedEmployee.id}/face`);
     } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : "An error occurred during onboarding setup";
+      const errMsg = err instanceof Error ? (err as Error).message : "An error occurred during onboarding setup";
       toast.error(errMsg);
     } finally {
       setLoading(false);

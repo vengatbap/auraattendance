@@ -1,11 +1,11 @@
-import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { siteService } from "@/modules/sites/service/site.service";
 import { logger } from "@/lib/logger";
 import { db } from "@/db";
-import { organizations, sites } from "@/db/schema";
-import { and, eq, isNull } from "drizzle-orm";
-import { mapToSiteDTO, SiteEntity } from "@/modules/sites/types";
+import { organizations } from "@/db/schema";
+import { eq } from "drizzle-orm";
+import { PermissionService } from "@/lib/rbac";
+import { createApiResponse } from "@/lib/api-response";
 
 export async function GET(req: Request) {
   return logger.track("GET /api/sites", async () => {
@@ -17,8 +17,8 @@ export async function GET(req: Request) {
 
       let organizationId = session?.organizationId ?? null;
 
+      // Allow public request (e.g. from kiosk) ONLY if a valid organization slug/id context is provided
       if (!organizationId) {
-        // Public request (e.g. from kiosk)
         if (orgSlug) {
           const [org] = await db
             .select()
@@ -33,38 +33,37 @@ export async function GET(req: Request) {
         }
       }
 
-      if (organizationId) {
-        const list = await siteService.list(organizationId);
-        return NextResponse.json({
-          success: true,
-          message: "Sites retrieved successfully",
-          data: list,
-          meta: null,
-          errors: null,
+      if (!organizationId) {
+        return createApiResponse({
+          success: false,
+          message: "Organization identifier is required.",
+          status: 400,
         });
       }
 
-      // Enforce tenant organization context is provided
-      return NextResponse.json({
-        success: false,
-        message: "Organization identifier is required.",
-        data: [],
-        meta: null,
-        errors: { global: ["Organization identifier is required"] },
-      }, { status: 400 });
+      // If they have a session, enforce active permission checks
+      if (session && PermissionService.cannot(session, "site.read")) {
+        return createApiResponse({
+          success: false,
+          message: "Forbidden: insufficient permissions",
+          status: 403,
+        });
+      }
+
+      const list = await siteService.list(organizationId);
+      return createApiResponse({
+        success: true,
+        message: "Sites retrieved successfully",
+        data: list,
+      });
     } catch (err: unknown) {
       const error = err as Error;
       logger.error("Failed to list sites", error);
-      return NextResponse.json(
-        {
-          success: false,
-          message: error.message || "Failed to retrieve sites",
-          data: null,
-          meta: null,
-          errors: { global: ["Failed to list sites"] },
-        },
-        { status: 500 }
-      );
+      return createApiResponse({
+        success: false,
+        message: error.message || "Failed to retrieve sites",
+        status: 500,
+      });
     }
   });
 }
@@ -74,35 +73,37 @@ export async function POST(req: Request) {
     try {
       const session = await getSession();
       if (!session || !session.organizationId) {
-        return NextResponse.json(
-          { success: false, message: "Unauthorized", data: null, meta: null, errors: { global: ["Authentication required"] } },
-          { status: 401 }
-        );
+        return createApiResponse({
+          success: false,
+          message: "Unauthorized",
+          status: 401,
+        });
+      }
+
+      if (PermissionService.cannot(session, "site.create")) {
+        return createApiResponse({
+          success: false,
+          message: "Forbidden: insufficient permissions",
+          status: 403,
+        });
       }
 
       const body = await req.json();
       const site = await siteService.create(session.organizationId, body, session.userId);
 
-      return NextResponse.json({
+      return createApiResponse({
         success: true,
         message: "Site created successfully",
         data: site,
-        meta: null,
-        errors: null,
       });
     } catch (err: unknown) {
       const error = err as Error;
       logger.error("Failed to create site", error);
-      return NextResponse.json(
-        {
-          success: false,
-          message: error.message || "Failed to create site",
-          data: null,
-          meta: null,
-          errors: { global: [error.message] },
-        },
-        { status: 400 }
-      );
+      return createApiResponse({
+        success: false,
+        message: error.message || "Failed to create site",
+        status: 400,
+      });
     }
   });
 }

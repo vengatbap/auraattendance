@@ -19,24 +19,30 @@ import {
   X,
   Network,
   Shield,
+  Calendar,
+  AlertCircle,
+  CreditCard,
 } from "lucide-react";
 
+import { PermissionService } from "@/lib/rbac";
+
 const navItems = [
-  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Admins", href: "/dashboard/admins", icon: Users },
-  { label: "Sites", href: "/dashboard/sites", icon: MapPin },
-  { label: "Departments", href: "/dashboard/departments", icon: Network },
-  { label: "Employees", href: "/dashboard/employees", icon: Users2 },
-  { label: "Attendance", href: "/dashboard/attendance", icon: Clock },
-  { label: "Adjustments", href: "/dashboard/attendance/adjustments", icon: PencilLine },
-  { label: "Reports", href: "/dashboard/reports", icon: FileText },
-  { label: "Settings", href: "/dashboard/settings", icon: Settings },
+  { label: "Overview", href: "/dashboard", icon: LayoutDashboard, permission: "attendance.read" as const },
+  { label: "Attendance", href: "/dashboard/attendance", icon: Clock, permission: "attendance.read" as const },
+  { label: "Employees", href: "/dashboard/employees", icon: Users2, permission: "employee.read" as const },
+  { label: "Sites", href: "/dashboard/sites", icon: MapPin, permission: "site.read" as const },
+  { label: "Operations", href: "/dashboard/operations", icon: AlertCircle, permission: "attendance.update" as const, hasBadge: true },
+  { label: "Leave", href: "/dashboard/leave", icon: Calendar, permission: "leave.read" as const },
+  { label: "Payroll", href: "/dashboard/payroll", icon: CreditCard, permission: "payroll.read" as const },
+  { label: "Reports", href: "/dashboard/reports", icon: FileText, permission: "report.read" as const },
+  { label: "Settings", href: "/dashboard/settings", icon: Settings, permission: "settings.read" as const },
 ];
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [user, setUser] = useState<{ name: string; role: string; email: string } | null>(null);
+  const [user, setUser] = useState<{ name: string; role: string; email: string; isPlatformUser?: boolean } | null>(null);
+  const [operationsCount, setOperationsCount] = useState<number>(0);
 
   useEffect(() => {
     async function loadUser() {
@@ -50,8 +56,20 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         console.error(err);
       }
     }
+    async function loadOperations() {
+      try {
+        const res = await fetch("/api/operations/count");
+        if (res.ok) {
+          const data = await res.json();
+          setOperationsCount(data.count || 0);
+        }
+      } catch (err) {
+        // fail silently
+      }
+    }
     loadUser();
-  }, []);
+    loadOperations();
+  }, [pathname]);
 
   return (
     <div className="flex h-screen bg-[#09090b] text-[#fafafa] font-sans antialiased">
@@ -78,14 +96,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             {navItems
               .filter((item) => {
                 if (!user) return true;
-                const role = user.role;
-                if (role === "viewer") {
-                  return !["Admins", "Adjustments", "Settings"].includes(item.label);
-                }
-                if (role === "manager") {
-                  return !["Admins", "Settings"].includes(item.label);
-                }
-                return true;
+                return PermissionService.can({ role: user.role, isPlatformUser: user.isPlatformUser }, item.permission);
               })
               .map((item) => {
                 const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
@@ -96,14 +107,21 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                     href={item.href}
                     onClick={() => setSidebarOpen(false)}
                     className={cn(
-                      "flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all duration-150 text-xs font-semibold",
+                      "flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all duration-150 text-xs font-semibold",
                       isActive
                         ? "bg-[#18181b] text-white border border-zinc-850/50 shadow-sm"
                         : "text-zinc-400 hover:bg-zinc-900/50 hover:text-zinc-200"
                     )}
                   >
-                    <Icon className={cn("w-4.5 h-4.5 transition-colors", isActive ? "text-zinc-200" : "text-zinc-500")} />
-                    <span>{item.label}</span>
+                    <div className="flex items-center gap-3">
+                      <Icon className={cn("w-4.5 h-4.5 transition-colors", isActive ? "text-zinc-200" : "text-zinc-500")} />
+                      <span>{item.label}</span>
+                    </div>
+                    {item.hasBadge && operationsCount > 0 && (
+                      <span className="bg-amber-500 text-amber-950 text-[10px] font-black px-2 py-0.5 rounded-full">
+                        {operationsCount}
+                      </span>
+                    )}
                   </Link>
                 );
               })}
@@ -155,19 +173,24 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           </button>
           <div className="flex-1" />
           <div className="flex items-center gap-4">
-            {user?.role === "super_admin" && (
-              <Link href="/admin/dashboard">
-                <Button size="sm" className="bg-amber-600/10 hover:bg-amber-600/20 text-amber-500 border border-amber-500/20 text-[10px] h-7 rounded-lg font-bold flex items-center gap-1.5 cursor-pointer">
-                  <Shield className="w-3.5 h-3.5" />
-                  Admin Panel
-                </Button>
-              </Link>
+            {user?.isPlatformUser && (
+              <Button 
+                onClick={async () => {
+                  await fetch("/api/admin/tenants/exit", { method: "POST" });
+                  window.location.href = "/admin";
+                }}
+                size="sm" 
+                className="bg-red-600/10 hover:bg-red-600/20 text-red-500 border border-red-500/20 text-[10px] h-7 rounded-lg font-bold flex items-center gap-1.5 cursor-pointer"
+              >
+                <Shield className="w-3.5 h-3.5" />
+                Exit Support Mode
+              </Button>
             )}
             <div className="text-right">
               <div className="text-xs font-bold text-zinc-200">{user?.name || "Loading..."}</div>
               <div className="text-[9px] text-zinc-500 uppercase tracking-widest font-black mt-0.5">
-                {user?.role === "super_admin"
-                  ? "Platform Admin"
+                {user?.isPlatformUser
+                  ? "Platform Support Mode"
                   : user?.role === "admin"
                   ? "Administrator"
                   : user?.role === "manager"

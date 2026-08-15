@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { db } from "@/db";
 import { faceProfiles, employees } from "@/db/schema";
 import { and, eq, isNull } from "drizzle-orm";
@@ -6,10 +6,14 @@ import { z } from "zod";
 import { getSession } from "@/lib/auth";
 import { AuditService } from "@/modules/audit/service/audit.service";
 import { logger } from "@/lib/logger";
+import { PermissionService } from "@/lib/rbac";
+import { isAllowed } from "@/lib/rate-limit";
+import { createApiResponse } from "@/lib/api-response";
+import { FeatureService, FeatureRegistry } from "@/lib/features";
 
 const RegisterFaceSchema = z.object({
   employeeId: z.string().uuid(),
-  descriptor: z.array(z.number()), // Face descriptor array (128 floats)
+  descriptor: z.array(z.number()),
   images: z.array(z.string()).optional(),
 });
 
@@ -28,25 +32,56 @@ export async function POST(req: NextRequest) {
     try {
       const session = await getSession();
       if (!session || !session.organizationId) {
-        return NextResponse.json(
-          { success: false, message: "Unauthorized", data: null, meta: null, errors: { global: ["Authentication required"] } },
-          { status: 401 }
-        );
+        return createApiResponse({
+          success: false,
+          message: "Unauthorized",
+          status: 401,
+        });
+      }
+
+      // RBAC Authorization check
+      if (PermissionService.cannot(session, "employee.update")) {
+        return createApiResponse({
+          success: false,
+          message: "Forbidden: insufficient permissions",
+          status: 403,
+        });
+      }
+
+      // Verify feature flag
+      const isFeatureEnabled = await FeatureService.isEnabled(session.organizationId, FeatureRegistry.FACE);
+      if (!isFeatureEnabled) {
+        return createApiResponse({
+          success: false,
+          message: "Forbidden: face biometrics feature is disabled for this organization",
+          status: 403,
+        });
       }
 
       const body = await req.json();
       const result = RegisterFaceSchema.safeParse(body);
 
       if (!result.success) {
-        return NextResponse.json(
-          { success: false, message: "Invalid payload", data: null, meta: null, errors: result.error.format() },
-          { status: 400 }
-        );
+        return createApiResponse({
+          success: false,
+          message: "Invalid payload",
+          errors: result.error.format(),
+          status: 400,
+        });
       }
 
       const { employeeId, descriptor } = result.data;
 
-      // 1. Verify employee exists and belongs to the same organization
+      // Rate limit: 3 requests/5 minutes/employee
+      if (!isAllowed(`register_face:${employeeId}`, 3, 5 * 60 * 1000)) {
+        return createApiResponse({
+          success: false,
+          message: "Too many face enrollment requests. Please try again in 5 minutes.",
+          status: 429,
+        });
+      }
+
+      // Verify employee exists and belongs to the same organization
       const [employee] = await db
         .select()
         .from(employees)
@@ -60,13 +95,14 @@ export async function POST(req: NextRequest) {
         .limit(1);
 
       if (!employee) {
-        return NextResponse.json(
-          { success: false, message: "Employee not found", data: null, meta: null, errors: { global: ["Employee not found"] } },
-          { status: 404 }
-        );
+        return createApiResponse({
+          success: false,
+          message: "Employee not found",
+          status: 404,
+        });
       }
 
-      // 2. Perform duplicate face vector checks in the tenant
+      // Perform duplicate face vector checks in the tenant
       const otherProfiles = await db
         .select()
         .from(faceProfiles)
@@ -76,21 +112,15 @@ export async function POST(req: NextRequest) {
         if (profile.employeeId === employeeId) continue;
         const dist = getEuclideanDistance(descriptor, profile.embedding as number[]);
         if (dist < 0.45) {
-          // Similarity distance threshold exceeded, block registration!
-          return NextResponse.json(
-            {
-              success: false,
-              message: "Duplicate face profile detected. This biometric pattern matches another registered employee.",
-              data: null,
-              meta: null,
-              errors: { global: ["Duplicate biometric match"] },
-            },
-            { status: 409 }
-          );
+          return createApiResponse({
+            success: false,
+            message: "Duplicate face profile detected. This biometric pattern matches another registered employee.",
+            status: 409,
+          });
         }
       }
 
-      // 3. Delete existing face profile for this employee (only one active face per employee)
+      // Delete existing face profile for this employee (only one active face per employee)
       await db
         .delete(faceProfiles)
         .where(
@@ -100,7 +130,7 @@ export async function POST(req: NextRequest) {
           )
         );
 
-      // 4. Create new face profile
+      // Create new face profile
       const [newProfile] = await db
         .insert(faceProfiles)
         .values({
@@ -122,20 +152,20 @@ export async function POST(req: NextRequest) {
         details: { employeeCode: employee.employeeCode, name: employee.name },
       });
 
-      return NextResponse.json({
+      return createApiResponse({
         success: true,
         message: "Face registered successfully",
         data: newProfile,
-        meta: null,
-        errors: null,
-      }, { status: 201 });
+        status: 201,
+      });
     } catch (err: unknown) {
       const error = err as Error;
       logger.error("Error registering face profile", error);
-      return NextResponse.json(
-        { success: false, message: error.message || "Failed to register face", data: null, meta: null, errors: { global: [error.message] } },
-        { status: 500 }
-      );
+      return createApiResponse({
+        success: false,
+        message: error.message || "Failed to register face",
+        status: 500,
+      });
     }
   });
 }
@@ -145,12 +175,28 @@ export async function GET(req: NextRequest) {
     try {
       const session = await getSession();
       if (!session || !session.organizationId) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        return createApiResponse({
+          success: false,
+          message: "Unauthorized",
+          status: 401,
+        });
+      }
+
+      if (PermissionService.cannot(session, "employee.read")) {
+        return createApiResponse({
+          success: false,
+          message: "Forbidden: insufficient permissions",
+          status: 403,
+        });
       }
 
       const employeeId = req.nextUrl.searchParams.get("employeeId");
       if (!employeeId) {
-        return NextResponse.json({ error: "employeeId is required" }, { status: 400 });
+        return createApiResponse({
+          success: false,
+          message: "employeeId is required",
+          status: 400,
+        });
       }
 
       const [profile] = await db
@@ -165,19 +211,25 @@ export async function GET(req: NextRequest) {
         .limit(1);
 
       if (!profile) {
-        return NextResponse.json({ error: "Face profile not found" }, { status: 404 });
+        return createApiResponse({
+          success: false,
+          message: "Face profile not found",
+          status: 404,
+        });
       }
 
-      return NextResponse.json({
+      return createApiResponse({
         success: true,
         message: "Face profile retrieved",
         data: profile,
-        meta: null,
-        errors: null,
       });
     } catch (error) {
       console.error("Error fetching face profile:", error);
-      return NextResponse.json({ error: "Failed to fetch face profile" }, { status: 500 });
+      return createApiResponse({
+        success: false,
+        message: "Failed to fetch face profile",
+        status: 500,
+      });
     }
   });
 }
@@ -187,12 +239,28 @@ export async function DELETE(req: NextRequest) {
     try {
       const session = await getSession();
       if (!session || !session.organizationId) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        return createApiResponse({
+          success: false,
+          message: "Unauthorized",
+          status: 401,
+        });
+      }
+
+      if (PermissionService.cannot(session, "employee.update")) {
+        return createApiResponse({
+          success: false,
+          message: "Forbidden: insufficient permissions",
+          status: 403,
+        });
       }
 
       const employeeId = req.nextUrl.searchParams.get("employeeId");
       if (!employeeId) {
-        return NextResponse.json({ error: "employeeId is required" }, { status: 400 });
+        return createApiResponse({
+          success: false,
+          message: "employeeId is required",
+          status: 400,
+        });
       }
 
       await db
@@ -213,16 +281,17 @@ export async function DELETE(req: NextRequest) {
         entityId: employeeId,
       });
 
-      return NextResponse.json({
+      return createApiResponse({
         success: true,
         message: "Face profile deleted successfully",
-        data: null,
-        meta: null,
-        errors: null,
       });
     } catch (error) {
       console.error("Error deleting face profile:", error);
-      return NextResponse.json({ error: "Failed to delete face profile" }, { status: 500 });
+      return createApiResponse({
+        success: false,
+        message: "Failed to delete face profile",
+        status: 500,
+      });
     }
   });
 }

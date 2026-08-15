@@ -344,16 +344,6 @@ export function EmployeeForm({ initialData, isEdit }: EmployeeFormProps) {
               />
             </div>
 
-            {isEdit && initialData?.id && (
-              <div className="pt-2">
-                <Link href={`/dashboard/employees/${initialData.id}/face`} className="block">
-                  <Button type="button" variant="outline" className="w-full border-slate-800 text-slate-300 h-11">
-                    <Camera className="w-4 h-4 mr-2" />
-                    Re-enroll Biometric Face Profile
-                  </Button>
-                </Link>
-              </div>
-            )}
 
             <div className="flex gap-4 pt-4 border-t border-slate-900">
               <Button type="submit" className="bg-blue-600 hover:bg-blue-500 font-bold px-6 h-11" disabled={form.formState.isSubmitting}>

@@ -15,6 +15,7 @@ export interface DepartmentEntity {
   createdAt: Date;
   updatedAt: Date;
   deletedAt: Date | null;
+  version: number;
 }
 
 export function mapToDepartmentDTO(dept: DepartmentEntity): DepartmentDTO {

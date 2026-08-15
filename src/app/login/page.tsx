@@ -48,11 +48,15 @@ export default function LoginPage() {
 
       const data = await res.json();
 
-      if (!res.ok) {
-        toast.error(data.error || "Failed to login");
+      if (!res.ok || !data.success) {
+        toast.error(data.message || data.error || "Failed to login");
       } else {
         toast.success("Logged in successfully");
-        router.push("/dashboard");
+        if (data.data?.user?.isPlatformUser) {
+          router.push("/admin");
+        } else {
+          router.push("/dashboard");
+        }
         router.refresh();
       }
     } catch (error) {

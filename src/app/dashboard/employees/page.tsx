@@ -15,8 +15,11 @@ interface Employee {
   employeeCode: string;
   name: string;
   status: string;
+  isActive: boolean;
+  isFaceEnrolled?: boolean;
   governmentId: string;
   siteId: string | null;
+  departmentId: string | null;
 }
 
 interface Site {
@@ -24,27 +27,36 @@ interface Site {
   name: string;
 }
 
+interface Department {
+  id: string;
+  name: string;
+}
+
 export default function EmployeesPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
 
   async function fetchEmployees() {
     try {
-      const [employeesRes, sitesRes] = await Promise.all([
+      const [employeesRes, sitesRes, deptsRes] = await Promise.all([
         fetch("/api/employees"),
         fetch("/api/sites"),
+        fetch("/api/departments"),
       ]);
 
-      if (!employeesRes.ok || !sitesRes.ok) throw new Error();
+      if (!employeesRes.ok) throw new Error();
 
       const empResult = await employeesRes.json();
-      const siteResult = await sitesRes.json();
+      const siteResult = sitesRes.ok ? await sitesRes.json() : { success: false, data: [] };
+      const deptResult = deptsRes.ok ? await deptsRes.json() : { success: false, data: [] };
 
-      if (empResult.success && siteResult.success) {
+      if (empResult.success) {
         setEmployees(empResult.data || []);
         setSites(siteResult.data || []);
+        setDepartments(deptResult.data || []);
       } else {
         throw new Error();
       }
@@ -66,21 +78,27 @@ export default function EmployeesPage() {
     return new Map(sites.map((site) => [site.id, site.name]));
   }, [sites]);
 
+  const deptById = useMemo(() => {
+    return new Map(departments.map((d) => [d.id, d.name]));
+  }, [departments]);
+
   const filteredEmployees = useMemo(() => {
     const search = searchTerm.trim().toLowerCase();
     if (!search) return employees;
 
     return employees.filter((employee) => {
       const siteName = employee.siteId ? siteById.get(employee.siteId) ?? "" : "";
+      const deptName = employee.departmentId ? deptById.get(employee.departmentId) ?? "" : "";
       return [
         employee.employeeCode || "",
         employee.name || "",
         employee.governmentId || "",
         siteName,
+        deptName,
         employee.status || "",
       ].some((value) => value.toLowerCase().includes(search));
     });
-  }, [employees, searchTerm, siteById]);
+  }, [employees, searchTerm, siteById, deptById]);
 
   async function disableEmployee(id: string) {
     if (!confirm("Disable this employee? They will no longer be able to punch attendance.")) return;
@@ -89,7 +107,7 @@ export default function EmployeesPage() {
       const res = await fetch(`/api/employees/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "inactive" }),
+        body: JSON.stringify({ isActive: false }),
       });
       const result = await res.json();
       if (!res.ok || !result.success) throw new Error();
@@ -156,9 +174,10 @@ export default function EmployeesPage() {
                     <tr>
                       <th className="py-3.5 px-4">Employee Code</th>
                       <th className="py-3.5 px-4">Name</th>
-                      <th className="py-3.5 px-4">Government ID</th>
-                      <th className="py-3.5 px-4">Registered Site</th>
+                      <th className="py-3.5 px-4">Department</th>
+                      <th className="py-3.5 px-4">Site</th>
                       <th className="py-3.5 px-4">Status</th>
+                      <th className="py-3.5 px-4">Face Status</th>
                       <th className="py-3.5 px-4 text-right">Actions</th>
                     </tr>
                   </thead>
@@ -167,21 +186,32 @@ export default function EmployeesPage() {
                       <tr key={employee.id} className="hover:bg-slate-900/20 transition-colors">
                         <td className="py-3.5 px-4 font-mono font-bold text-slate-400 text-xs">{employee.employeeCode}</td>
                         <td className="py-3.5 px-4 font-semibold text-slate-200">{employee.name}</td>
-                        <td className="py-3.5 px-4 text-slate-400 text-xs">{employee.governmentId}</td>
+                        <td className="py-3.5 px-4 text-slate-400 text-xs">
+                          {employee.departmentId ? deptById.get(employee.departmentId) ?? "-" : "-"}
+                        </td>
                         <td className="py-3.5 px-4 text-slate-400 text-xs">
                           {employee.siteId ? siteById.get(employee.siteId) ?? "Unknown site" : "-"}
                         </td>
                         <td className="py-3.5 px-4">
                           <span
                             className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider ${
-                              employee.status === "active"
+                              employee.isActive
                                 ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                                : employee.status === "inactive"
-                                ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
                                 : "bg-red-500/10 text-red-400 border border-red-500/20"
                             }`}
                           >
-                            {employee.status}
+                            {employee.isActive ? "Active" : "Inactive"}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <span
+                            className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider ${
+                              employee.isFaceEnrolled
+                                ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                                : "bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                            }`}
+                          >
+                            {employee.isFaceEnrolled ? "Enrolled" : "Not Enrolled"}
                           </span>
                         </td>
                         <td className="py-3.5 px-4 text-right space-x-1">
@@ -190,17 +220,12 @@ export default function EmployeesPage() {
                               <Edit className="w-4 h-4" />
                             </Button>
                           </Link>
-                          <Link href={`/dashboard/employees/${employee.id}/face`}>
-                            <Button variant="ghost" size="sm" className="text-emerald-500 hover:bg-emerald-600/10">
-                              <Camera className="w-4 h-4" />
-                            </Button>
-                          </Link>
                           <Button
                             variant="ghost"
                             size="sm"
                             className="text-red-500 hover:bg-red-600/10"
                             onClick={() => disableEmployee(employee.id)}
-                            disabled={employee.status === "inactive" || employee.status === "resigned"}
+                            disabled={!employee.isActive}
                           >
                             <UserX className="w-4 h-4" />
                           </Button>

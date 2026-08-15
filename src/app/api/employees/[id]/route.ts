@@ -1,7 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { getSession } from "@/lib/auth";
 import { employeeService } from "@/modules/employees/service/employee.service";
 import { logger } from "@/lib/logger";
+import { PermissionService } from "@/lib/rbac";
+import { createApiResponse } from "@/lib/api-response";
 
 export async function GET(
   req: NextRequest,
@@ -12,34 +14,36 @@ export async function GET(
     try {
       const session = await getSession();
       if (!session || !session.organizationId) {
-        return NextResponse.json(
-          { success: false, message: "Unauthorized", data: null, meta: null, errors: { global: ["Authentication required"] } },
-          { status: 401 }
-        );
+        return createApiResponse({
+          success: false,
+          message: "Unauthorized",
+          status: 401,
+        });
+      }
+
+      if (PermissionService.cannot(session, "employee.read")) {
+        return createApiResponse({
+          success: false,
+          message: "Forbidden: insufficient permissions",
+          status: 403,
+        });
       }
 
       const employee = await employeeService.getById(id, session.organizationId);
 
-      return NextResponse.json({
+      return createApiResponse({
         success: true,
         message: "Employee retrieved successfully",
         data: employee,
-        meta: null,
-        errors: null,
       });
     } catch (err: unknown) {
       const error = err as Error;
       logger.error(`Failed to get employee ${id}`, error);
-      return NextResponse.json(
-        {
-          success: false,
-          message: error.message || "Failed to retrieve employee",
-          data: null,
-          meta: null,
-          errors: { global: [error.message] },
-        },
-        { status: 404 }
-      );
+      return createApiResponse({
+        success: false,
+        message: error.message || "Failed to retrieve employee",
+        status: 404,
+      });
     }
   });
 }
@@ -53,35 +57,37 @@ export async function PUT(
     try {
       const session = await getSession();
       if (!session || !session.organizationId) {
-        return NextResponse.json(
-          { success: false, message: "Unauthorized", data: null, meta: null, errors: { global: ["Authentication required"] } },
-          { status: 401 }
-        );
+        return createApiResponse({
+          success: false,
+          message: "Unauthorized",
+          status: 401,
+        });
+      }
+
+      if (PermissionService.cannot(session, "employee.update")) {
+        return createApiResponse({
+          success: false,
+          message: "Forbidden: insufficient permissions",
+          status: 403,
+        });
       }
 
       const body = await req.json();
       const updated = await employeeService.update(id, session.organizationId, body, session.userId);
 
-      return NextResponse.json({
+      return createApiResponse({
         success: true,
         message: "Employee updated successfully",
         data: updated,
-        meta: null,
-        errors: null,
       });
     } catch (err: unknown) {
       const error = err as Error;
       logger.error(`Failed to update employee ${id}`, error);
-      return NextResponse.json(
-        {
-          success: false,
-          message: error.message || "Failed to update employee",
-          data: null,
-          meta: null,
-          errors: { global: [error.message] },
-        },
-        { status: 400 }
-      );
+      return createApiResponse({
+        success: false,
+        message: error.message || "Failed to update employee",
+        status: 400,
+      });
     }
   });
 }
@@ -95,34 +101,35 @@ export async function DELETE(
     try {
       const session = await getSession();
       if (!session || !session.organizationId) {
-        return NextResponse.json(
-          { success: false, message: "Unauthorized", data: null, meta: null, errors: { global: ["Authentication required"] } },
-          { status: 401 }
-        );
+        return createApiResponse({
+          success: false,
+          message: "Unauthorized",
+          status: 401,
+        });
+      }
+
+      if (PermissionService.cannot(session, "employee.archive")) {
+        return createApiResponse({
+          success: false,
+          message: "Forbidden: insufficient permissions",
+          status: 403,
+        });
       }
 
       await employeeService.delete(id, session.organizationId, session.userId);
 
-      return NextResponse.json({
+      return createApiResponse({
         success: true,
         message: "Employee deleted successfully",
-        data: null,
-        meta: null,
-        errors: null,
       });
     } catch (err: unknown) {
       const error = err as Error;
       logger.error(`Failed to delete employee ${id}`, error);
-      return NextResponse.json(
-        {
-          success: false,
-          message: error.message || "Failed to delete employee",
-          data: null,
-          meta: null,
-          errors: { global: [error.message] },
-        },
-        { status: 400 }
-      );
+      return createApiResponse({
+        success: false,
+        message: error.message || "Failed to delete employee",
+        status: 400,
+      });
     }
   });
 }

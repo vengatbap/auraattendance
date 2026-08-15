@@ -1,13 +1,41 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { db } from "@/db";
 import { attendanceLogs, employees, sites } from "@/db/schema";
 import { eq, and, gte, lte } from "drizzle-orm";
 import { getSession } from "@/lib/auth";
+import { PermissionService } from "@/lib/rbac";
+import { createApiResponse } from "@/lib/api-response";
+import { FeatureService, FeatureRegistry } from "@/lib/features";
 
 export async function GET(req: NextRequest) {
   try {
     const session = await getSession();
-    if (!session || !session.organizationId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!session || !session.organizationId) {
+      return createApiResponse({
+        success: false,
+        message: "Unauthorized",
+        status: 401,
+      });
+    }
+
+    // RBAC Authorization check
+    if (PermissionService.cannot(session, "report.read")) {
+      return createApiResponse({
+        success: false,
+        message: "Forbidden: insufficient permissions",
+        status: 403,
+      });
+    }
+
+    // Verify feature flag
+    const isFeatureEnabled = await FeatureService.isEnabled(session.organizationId, FeatureRegistry.REPORTS);
+    if (!isFeatureEnabled) {
+      return createApiResponse({
+        success: false,
+        message: "Forbidden: reports feature is disabled for this organization",
+        status: 403,
+      });
+    }
 
     const type = req.nextUrl.searchParams.get("type") || "daily";
     const date = req.nextUrl.searchParams.get("date");
@@ -35,15 +63,19 @@ export async function GET(req: NextRequest) {
           )
         );
 
-      return NextResponse.json({
-        type: "daily",
-        date,
-        data: logs.map((log) => ({
-          ...log,
-          hours: log.checkInTime && log.checkOutTime 
-            ? ((new Date(log.checkOutTime).getTime() - new Date(log.checkInTime).getTime()) / (1000 * 60 * 60)).toFixed(2)
-            : "0.00",
-        })),
+      return createApiResponse({
+        success: true,
+        message: "Daily report generated",
+        data: {
+          type: "daily",
+          date,
+          data: logs.map((log) => ({
+            ...log,
+            hours: log.checkInTime && log.checkOutTime 
+              ? ((new Date(log.checkOutTime).getTime() - new Date(log.checkInTime).getTime()) / (1000 * 60 * 60)).toFixed(2)
+              : "0.00",
+          })),
+        },
       });
     }
 
@@ -95,13 +127,17 @@ export async function GET(req: NextRequest) {
         }
       });
 
-      return NextResponse.json({
-        type: "monthly",
-        month,
-        data: Object.values(summary).map((emp) => ({
-          ...emp,
-          workingHours: emp.workingHours.toFixed(2),
-        })),
+      return createApiResponse({
+        success: true,
+        message: "Monthly report generated",
+        data: {
+          type: "monthly",
+          month,
+          data: Object.values(summary).map((emp) => ({
+            ...emp,
+            workingHours: emp.workingHours.toFixed(2),
+          })),
+        },
       });
     }
 
@@ -147,19 +183,31 @@ export async function GET(req: NextRequest) {
         }
       });
 
-      return NextResponse.json({
-        type: "site",
-        date,
-        data: Object.values(summary).map((site) => ({
-          ...site,
-          totalHours: site.totalHours.toFixed(2),
-        })),
+      return createApiResponse({
+        success: true,
+        message: "Site report generated",
+        data: {
+          type: "site",
+          date,
+          data: Object.values(summary).map((site) => ({
+            ...site,
+            totalHours: site.totalHours.toFixed(2),
+          })),
+        },
       });
     }
 
-    return NextResponse.json({ error: "Invalid report parameters" }, { status: 400 });
+    return createApiResponse({
+      success: false,
+      message: "Invalid report parameters",
+      status: 400,
+    });
   } catch (error) {
     console.error("Error generating report:", error);
-    return NextResponse.json({ error: "Failed to generate report" }, { status: 500 });
+    return createApiResponse({
+      success: false,
+      message: "Failed to generate report",
+      status: 500,
+    });
   }
 }

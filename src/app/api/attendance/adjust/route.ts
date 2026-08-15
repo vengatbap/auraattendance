@@ -1,9 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { db } from "@/db";
 import { attendanceAdjustments, attendanceLogs, auditLogs, employees } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 import { getSession } from "@/lib/auth";
+import { PermissionService } from "@/lib/rbac";
+import { createApiResponse } from "@/lib/api-response";
+import { FeatureService, FeatureRegistry } from "@/lib/features";
 
 const AdjustmentSchema = z.object({
   attendanceLogId: z.string().uuid(),
@@ -16,17 +19,45 @@ const AdjustmentSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    // Verify authentication
+    // 1. Verify authentication
     const session = await getSession();
     if (!session || !session.organizationId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return createApiResponse({
+        success: false,
+        message: "Unauthorized",
+        status: 401,
+      });
+    }
+
+    // 2. Verify RBAC permissions
+    if (PermissionService.cannot(session, "attendance.adjust")) {
+      return createApiResponse({
+        success: false,
+        message: "Forbidden: insufficient permissions",
+        status: 403,
+      });
+    }
+
+    // 3. Verify feature flag
+    const isFeatureEnabled = await FeatureService.isEnabled(session.organizationId, FeatureRegistry.ADJUSTMENTS);
+    if (!isFeatureEnabled) {
+      return createApiResponse({
+        success: false,
+        message: "Forbidden: adjustments feature is disabled for this organization",
+        status: 403,
+      });
     }
 
     const body = await req.json();
     const result = AdjustmentSchema.safeParse(body);
 
     if (!result.success) {
-      return NextResponse.json({ error: result.error.issues }, { status: 400 });
+      return createApiResponse({
+        success: false,
+        message: "Validation failed",
+        errors: result.error.issues,
+        status: 400,
+      });
     }
 
     const { attendanceLogId, type, checkInTime, checkOutTime, date, reason } = result.data;
@@ -43,7 +74,11 @@ export async function POST(req: NextRequest) {
       );
 
     if (!attendanceLog) {
-      return NextResponse.json({ error: "Attendance log not found" }, { status: 404 });
+      return createApiResponse({
+        success: false,
+        message: "Attendance log not found",
+        status: 404,
+      });
     }
 
     // Get employee info for audit log
@@ -52,8 +87,11 @@ export async function POST(req: NextRequest) {
       .from(employees)
       .where(eq(employees.id, attendanceLog.employeeId));
 
+    // Get current version for optimistic locking
+    const currentVersion = attendanceLog.version ?? 1;
+
     // Apply adjustment based on type
-    let updateData: Record<string, any> = { updatedAt: new Date() };
+    const updateData: Partial<typeof attendanceLogs.$inferInsert> = { updatedAt: new Date() };
 
     switch (type) {
       case "check_in_time":
@@ -81,9 +119,10 @@ export async function POST(req: NextRequest) {
           checkInTime: new Date(checkInTime),
           checkOutTime: checkOutTime ? new Date(checkOutTime) : null,
           status: "present",
+          version: 1,
         });
 
-        // Log the adjustment
+        // Log the adjustment in audit logs
         await db.insert(auditLogs).values({
           organizationId: attendanceLog.organizationId,
           userId: session.userId,
@@ -114,17 +153,35 @@ export async function POST(req: NextRequest) {
           },
         });
 
-        return NextResponse.json(
-          { message: "Missed punch added successfully" },
-          { status: 201 }
-        );
+        return createApiResponse({
+          success: true,
+          message: "Missed punch added successfully",
+          status: 201,
+        });
     }
 
-    // Update the attendance log
-    await db
+    // Update the attendance log with optimistic locking check
+    const [updatedLog] = await db
       .update(attendanceLogs)
-      .set(updateData)
-      .where(eq(attendanceLogs.id, attendanceLogId));
+      .set({
+        ...updateData,
+        version: currentVersion + 1,
+      })
+      .where(
+        and(
+          eq(attendanceLogs.id, attendanceLogId),
+          eq(attendanceLogs.version, currentVersion)
+        )
+      )
+      .returning();
+
+    if (!updatedLog) {
+      return createApiResponse({
+        success: false,
+        message: "Concurrent update detected. The record has been modified by another process. Please reload and try again.",
+        status: 409,
+      });
+    }
 
     // Log the adjustment in audit logs
     await db.insert(auditLogs).values({
@@ -157,18 +214,20 @@ export async function POST(req: NextRequest) {
       after: {
         ...attendanceLog,
         ...updateData,
+        version: currentVersion + 1,
       },
     });
 
-    return NextResponse.json(
-      { message: `${type} adjusted successfully` },
-      { status: 200 }
-    );
+    return createApiResponse({
+      success: true,
+      message: `${type} adjusted successfully`,
+    });
   } catch (error) {
     console.error("Error adjusting attendance:", error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to adjust attendance" },
-      { status: 500 }
-    );
+    return createApiResponse({
+      success: false,
+      message: error instanceof Error ? error.message : "Failed to adjust attendance",
+      status: 500,
+    });
   }
 }

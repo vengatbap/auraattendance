@@ -1,6 +1,7 @@
 import { db } from "@/db";
 import { users, sessions, loginHistory } from "@/db/schema";
 import { eq, and, lte, desc } from "drizzle-orm";
+import { ConflictError, NotFoundError } from "@/lib/errors";
 
 export const authRepository = {
   async findUserById(id: string) {
@@ -43,14 +44,28 @@ export const authRepository = {
   },
 
   async updateUser(id: string, data: Partial<typeof users.$inferInsert>) {
+    const current = await this.findUserById(id);
+    if (!current) throw new NotFoundError("User not found");
+    const currentVersion = current.version ?? 1;
+
     const [result] = await db
       .update(users)
       .set({
         ...data,
+        version: currentVersion + 1,
         updatedAt: new Date(),
       })
-      .where(eq(users.id, id))
+      .where(
+        and(
+          eq(users.id, id),
+          eq(users.version, currentVersion)
+        )
+      )
       .returning();
+
+    if (!result) {
+      throw new ConflictError("Concurrent modification detected. Please reload and try again.");
+    }
     return result;
   },
 

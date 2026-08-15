@@ -3,12 +3,16 @@ import type { NextRequest } from "next/server";
 import { SESSION_COOKIE_NAME } from "@/constants";
 import { decrypt } from "@/lib/auth";
 
-const protectedRoutes = [
+const protectedTenantRoutes = [
   "/dashboard",
   "/employees",
   "/sites",
   "/reports",
   "/settings",
+];
+
+const protectedPlatformRoutes = [
+  "/admin",
 ];
 
 const protectedApiRoutes = [
@@ -20,11 +24,9 @@ const protectedApiRoutes = [
   "/api/settings",
   "/api/audit-logs",
   "/api/attendance",
-  "/api/attendance/adjust",
-  "/api/attendance/punch",
   "/api/faces/register",
   "/api/auth/me",
-  "/api/attendance/summary",
+  "/api/admin", // Protect platform APIs
 ];
 
 const publicApiRoutes = [
@@ -33,12 +35,13 @@ const publicApiRoutes = [
   "/api/attendance/sync",
   "/api/health",
   "/api/version",
+  "/api/auth/login",
 ];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const sessionCookie = request.cookies.get(SESSION_COOKIE_NAME);
-  let session = null;
+  let session: { isPlatformUser?: boolean; supportTenantId?: string | null; userId?: string; role?: string } | null = null;
 
   if (sessionCookie) {
     try {
@@ -48,20 +51,49 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  const isProtectedRoute = protectedRoutes.some((route) => pathname.startsWith(route));
-  if (isProtectedRoute && !session) {
+  const isTenantRoute = protectedTenantRoutes.some((route) => pathname.startsWith(route));
+  const isPlatformRoute = protectedPlatformRoutes.some((route) => pathname.startsWith(route));
+  const isProtectedApiRoute = protectedApiRoutes.some((route) => pathname.startsWith(route)) && !publicApiRoutes.some((route) => pathname.startsWith(route));
+
+  // If no session and hitting protected route
+  if ((isTenantRoute || isPlatformRoute) && !session) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
-  const isProtectedApiRoute = protectedApiRoutes.some((route) => pathname.startsWith(route));
-  const isPublicApiRoute = publicApiRoutes.includes(pathname) || (pathname === "/api/sites" && request.method === "GET");
-
-  if (isProtectedApiRoute && !isPublicApiRoute && !session) {
+  // If no session and hitting protected API
+  if (isProtectedApiRoute && !session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (pathname === "/login" && session) {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
+  if (session) {
+    const isPlatformUser = session.isPlatformUser === true;
+    const hasSupportContext = !!session.supportTenantId;
+
+    if (pathname === "/login") {
+      if (isPlatformUser) {
+        return NextResponse.redirect(new URL("/admin", request.url));
+      } else {
+        return NextResponse.redirect(new URL("/dashboard", request.url));
+      }
+    }
+
+    if (isPlatformRoute) {
+      if (!isPlatformUser) {
+        return NextResponse.redirect(new URL("/dashboard", request.url));
+      }
+    }
+
+    if (isTenantRoute) {
+      if (isPlatformUser && !hasSupportContext) {
+        return NextResponse.redirect(new URL("/admin", request.url));
+      }
+    }
+
+    if (pathname.startsWith("/api/admin")) {
+      if (!isPlatformUser) {
+        return NextResponse.json({ error: "Forbidden: Platform access required" }, { status: 403 });
+      }
+    }
   }
 
   return NextResponse.next();

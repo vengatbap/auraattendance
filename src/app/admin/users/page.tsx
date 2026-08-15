@@ -20,13 +20,13 @@ export default function AdminUsersPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
 
-  async function fetchUsers() {
-    setLoading(true);
+  async function fetchUsers(showLoading = false) {
+    if (showLoading) setLoading(true);
     try {
       const res = await fetch("/api/admin/users");
       if (!res.ok) throw new Error();
-      const data = await res.json();
-      setUsers(data);
+      const body = await res.json();
+      setUsers(body.data || []);
     } catch {
       toast.error("Failed to load users list");
     } finally {
@@ -35,7 +35,8 @@ export default function AdminUsersPage() {
   }
 
   useEffect(() => {
-    fetchUsers();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchUsers(false);
   }, []);
 
   const filteredUsers = users.filter((u) =>
@@ -52,7 +53,7 @@ export default function AdminUsersPage() {
           <p className="text-zinc-500 mt-1 text-sm">Directory of all portal administrators across the platform.</p>
         </div>
         <Button
-          onClick={fetchUsers}
+          onClick={() => fetchUsers(true)}
           variant="outline"
           className="border-zinc-800 text-zinc-300 hover:bg-zinc-900 cursor-pointer"
         >

@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { attendanceLogs, employees, sites } from "@/db/schema";
+import { attendanceLogs, employees, sites, leaveRequests, leaveTypes, payrollItems, payrollRuns, payrollPeriods } from "@/db/schema";
 import { eq, and, gte, lte } from "drizzle-orm";
 import { getSession } from "@/lib/auth";
-import ExcelJS from "exceljs";
+import { PermissionService } from "@/lib/rbac";
+import { createApiResponse } from "@/lib/api-response";
+import { FeatureService, FeatureRegistry } from "@/lib/features";
 
 function convertToCSV(data: Record<string, string | number | boolean | Date | null | undefined>[]): string {
   if (data.length === 0) return "";
@@ -28,56 +30,50 @@ function convertToCSV(data: Record<string, string | number | boolean | Date | nu
   return csv.join("\n");
 }
 
-async function convertToExcel(data: Record<string, string | number | boolean | Date | null | undefined>[]): Promise<Buffer> {
-  const workbook = new ExcelJS.Workbook();
-  workbook.creator = "AURA Attendance";
-  workbook.created = new Date();
-
-  const worksheet = workbook.addWorksheet("Report");
-  const headers = data.length > 0 ? Object.keys(data[0]) : ["No Data"];
-  worksheet.columns = headers.map((header) => ({
-    header,
-    key: header,
-    width: Math.max(14, header.length + 4),
-  }));
-
-  data.forEach((row) => worksheet.addRow(row));
-  worksheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
-  worksheet.getRow(1).fill = {
-    type: "pattern",
-    pattern: "solid",
-    fgColor: { argb: "FF2563EB" },
-  };
-  worksheet.views = [{ state: "frozen", ySplit: 1 }];
-
-  const buffer = await workbook.xlsx.writeBuffer();
-  return Buffer.from(buffer);
-}
-
 export async function GET(req: NextRequest) {
   try {
     const session = await getSession();
     if (!session || !session.organizationId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return createApiResponse({ success: false, message: "Unauthorized", status: 401 });
+    }
+
+    if (PermissionService.cannot(session, "report.export")) {
+      return createApiResponse({ success: false, message: "Forbidden: insufficient permissions", status: 403 });
+    }
+
+    const isFeatureEnabled = await FeatureService.isEnabled(session.organizationId, FeatureRegistry.REPORTS);
+    if (!isFeatureEnabled) {
+      return createApiResponse({
+        success: false,
+        message: "Forbidden: reports feature is disabled for this organization",
+        status: 403,
+      });
     }
 
     const orgId = session.organizationId;
-    const type = req.nextUrl.searchParams.get("type") || "daily";
-    const date = req.nextUrl.searchParams.get("date");
-    const month = req.nextUrl.searchParams.get("month");
+    const domain = req.nextUrl.searchParams.get("domain");
+    const startDate = req.nextUrl.searchParams.get("startDate");
+    const endDate = req.nextUrl.searchParams.get("endDate");
     const siteId = req.nextUrl.searchParams.get("siteId");
-    const format = req.nextUrl.searchParams.get("format") || "csv";
+    const employeeId = req.nextUrl.searchParams.get("employeeId");
 
     let data: Record<string, string | number | boolean | Date | null | undefined>[] = [];
-    let filename = "report";
+    let filename = "export";
 
-    const filterSite = siteId && siteId !== "all" ? eq(attendanceLogs.siteId, siteId) : undefined;
+    if (!startDate || !endDate) {
+      return createApiResponse({ success: false, message: "Start date and end date are required", status: 400 });
+    }
 
-    if (type === "daily" && date) {
+    if (domain === "attendance") {
+      const filterSite = siteId ? eq(attendanceLogs.siteId, siteId) : undefined;
+      const filterEmp = employeeId ? eq(attendanceLogs.employeeId, employeeId) : undefined;
+
       const logs = await db
         .select({
           employeeName: employees.name,
-          employeeId: employees.employeeCode,
+          employeeCode: employees.employeeCode,
+          date: attendanceLogs.date,
+          status: attendanceLogs.status,
           checkInTime: attendanceLogs.checkInTime,
           checkOutTime: attendanceLogs.checkOutTime,
           siteName: sites.name,
@@ -85,172 +81,128 @@ export async function GET(req: NextRequest) {
         .from(attendanceLogs)
         .innerJoin(employees, eq(employees.id, attendanceLogs.employeeId))
         .leftJoin(sites, eq(sites.id, attendanceLogs.siteId))
-        .where(
-          and(
-            eq(attendanceLogs.organizationId, orgId),
-            eq(attendanceLogs.date, date),
-            filterSite
-          )
-        );
-
-      data = logs.map((log) => ({
-        Employee: log.employeeName,
-        "Employee ID": log.employeeId,
-        "Check In": log.checkInTime ? new Date(log.checkInTime).toLocaleString() : "-",
-        "Check Out": log.checkOutTime ? new Date(log.checkOutTime).toLocaleString() : "-",
-        Hours: log.checkInTime && log.checkOutTime
-          ? ((new Date(log.checkOutTime).getTime() - new Date(log.checkInTime).getTime()) / (1000 * 60 * 60)).toFixed(2)
-          : "0",
-        Site: log.siteName || "-",
-      }));
-
-      filename = `daily-attendance-${date}`;
-    } else if (type === "monthly" && month) {
-      const [year, monthNum] = month.split("-");
-      const startDate = `${year}-${monthNum}-01`;
-      const endDate = new Date(parseInt(year), parseInt(monthNum), 0).toISOString().split("T")[0];
-
-      const logs = await db
-        .select({
-          employeeName: employees.name,
-          employeeId: employees.employeeCode,
-          status: attendanceLogs.status,
-          checkInTime: attendanceLogs.checkInTime,
-          checkOutTime: attendanceLogs.checkOutTime,
-        })
-        .from(attendanceLogs)
-        .innerJoin(employees, eq(employees.id, attendanceLogs.employeeId))
         .where(
           and(
             eq(attendanceLogs.organizationId, orgId),
             gte(attendanceLogs.date, startDate),
             lte(attendanceLogs.date, endDate),
-            filterSite
-          )
-        );
-
-      const summary: Record<string, { employeeName: string; present: number; absent: number; late: number; workingHours: number }> = {};
-      logs.forEach((log) => {
-        if (!summary[log.employeeId]) {
-          summary[log.employeeId] = {
-            employeeName: log.employeeName,
-            present: 0,
-            absent: 0,
-            late: 0,
-            workingHours: 0,
-          };
-        }
-        if (log.status === "present") summary[log.employeeId].present++;
-        else if (log.status === "absent") summary[log.employeeId].absent++;
-        else if (log.status === "late") summary[log.employeeId].late++;
-
-        if (log.checkInTime && log.checkOutTime) {
-          const hours = (new Date(log.checkOutTime).getTime() - new Date(log.checkInTime).getTime()) / (1000 * 60 * 60);
-          summary[log.employeeId].workingHours += hours;
-        }
-      });
-
-      data = Object.values(summary).map((emp) => ({
-        Employee: emp.employeeName,
-        Present: emp.present,
-        Absent: emp.absent,
-        Late: emp.late,
-        "Working Hours": emp.workingHours.toFixed(2),
-      }));
-
-      filename = `monthly-attendance-${month}`;
-    } else if (type === "site" && date) {
-      const logs = await db
-        .select({
-          employeeName: employees.name,
-          employeeId: employees.employeeCode,
-          checkInTime: attendanceLogs.checkInTime,
-          checkOutTime: attendanceLogs.checkOutTime,
-          status: attendanceLogs.status,
-          siteName: sites.name,
-        })
-        .from(attendanceLogs)
-        .innerJoin(employees, eq(employees.id, attendanceLogs.employeeId))
-        .leftJoin(sites, eq(sites.id, attendanceLogs.siteId))
-        .where(
-          and(
-            eq(attendanceLogs.organizationId, orgId),
-            eq(attendanceLogs.date, date),
-            filterSite
+            filterSite,
+            filterEmp
           )
         );
 
       data = logs.map((log) => ({
-        Site: log.siteName || "-",
-        Employee: log.employeeName,
-        "Employee ID": log.employeeId,
-        Status: log.status,
+        "Employee": log.employeeName,
+        "Employee Code": log.employeeCode,
+        "Date": log.date,
+        "Status": log.status,
         "Check In": log.checkInTime ? new Date(log.checkInTime).toLocaleString() : "-",
         "Check Out": log.checkOutTime ? new Date(log.checkOutTime).toLocaleString() : "-",
-        Hours: log.checkInTime && log.checkOutTime
-          ? ((new Date(log.checkOutTime).getTime() - new Date(log.checkInTime).getTime()) / (1000 * 60 * 60)).toFixed(2)
-          : "0",
+        "Site": log.siteName || "-",
       }));
+      filename = `attendance-${startDate}-to-${endDate}`;
 
-      filename = `site-attendance-${date}`;
-    } else if (type === "employee") {
-      const parsedYear = month ? parseInt(month.split("-")[0]) : new Date().getFullYear();
-      const parsedMonth = month ? parseInt(month.split("-")[1]) : new Date().getMonth() + 1;
-      const endLimitDate = new Date(parsedYear, parsedMonth, 0).toISOString().split("T")[0];
+    } else if (domain === "leave") {
+      const filterEmp = employeeId ? eq(leaveRequests.employeeId, employeeId) : undefined;
 
-      const logs = await db
+      const leaves = await db
         .select({
           employeeName: employees.name,
-          employeeId: employees.employeeCode,
-          governmentId: employees.governmentId,
-          date: attendanceLogs.date,
-          checkInTime: attendanceLogs.checkInTime,
-          checkOutTime: attendanceLogs.checkOutTime,
-          status: attendanceLogs.status,
-          siteName: sites.name,
+          employeeCode: employees.employeeCode,
+          leaveType: leaveTypes.name,
+          startDate: leaveRequests.startDate,
+          endDate: leaveRequests.endDate,
+          requestedDays: leaveRequests.requestedDays,
+          status: leaveRequests.status,
         })
-        .from(attendanceLogs)
-        .innerJoin(employees, eq(employees.id, attendanceLogs.employeeId))
-        .leftJoin(sites, eq(sites.id, attendanceLogs.siteId))
+        .from(leaveRequests)
+        .innerJoin(employees, eq(employees.id, leaveRequests.employeeId))
+        .innerJoin(leaveTypes, eq(leaveTypes.id, leaveRequests.leaveTypeId))
         .where(
           and(
-            eq(attendanceLogs.organizationId, orgId),
-            month ? gte(attendanceLogs.date, `${month}-01`) : undefined,
-            month ? lte(attendanceLogs.date, endLimitDate) : undefined,
-            filterSite
+            eq(leaveRequests.organizationId, orgId),
+            gte(leaveRequests.startDate, startDate),
+            lte(leaveRequests.endDate, endDate),
+            filterEmp
           )
         );
 
-      data = logs.map((log) => ({
-        Employee: log.employeeName,
-        "Employee ID": log.employeeId,
-        "Government ID": log.governmentId || "-",
-        Date: log.date,
-        Site: log.siteName || "-",
-        Status: log.status,
-        "Check In": log.checkInTime ? new Date(log.checkInTime).toLocaleString() : "-",
-        "Check Out": log.checkOutTime ? new Date(log.checkOutTime).toLocaleString() : "-",
+      data = leaves.map((lv) => ({
+        "Employee": lv.employeeName,
+        "Employee Code": lv.employeeCode,
+        "Leave Type": lv.leaveType,
+        "Start Date": lv.startDate,
+        "End Date": lv.endDate,
+        "Days": lv.requestedDays,
+        "Status": lv.status,
       }));
+      filename = `leaves-${startDate}-to-${endDate}`;
 
-      filename = `employee-attendance-${month || "all"}`;
+    } else if (domain === "payroll") {
+      const filterEmp = employeeId ? eq(payrollItems.employeeId, employeeId) : undefined;
+
+      const payroll = await db
+        .select({
+          employeeName: employees.name,
+          employeeCode: employees.employeeCode,
+          periodName: payrollPeriods.name,
+          basicSalary: payrollItems.basicSalary,
+          presentDays: payrollItems.presentDays,
+          absentDays: payrollItems.absentDays,
+          overtimeAmount: payrollItems.overtimeAmount,
+          allowanceAmount: payrollItems.allowanceAmount,
+          deductionAmount: payrollItems.deductionAmount,
+          grossPay: payrollItems.grossPay,
+          netPay: payrollItems.netPay,
+        })
+        .from(payrollItems)
+        .innerJoin(payrollRuns, eq(payrollRuns.id, payrollItems.payrollRunId))
+        .innerJoin(payrollPeriods, eq(payrollPeriods.id, payrollRuns.payrollPeriodId))
+        .innerJoin(employees, eq(employees.id, payrollItems.employeeId))
+        .where(
+          and(
+            eq(payrollItems.organizationId, orgId),
+            gte(payrollPeriods.periodStart, startDate),
+            lte(payrollPeriods.periodEnd, endDate),
+            filterEmp
+          )
+        );
+
+      data = payroll.map((pr) => ({
+        "Employee": pr.employeeName,
+        "Employee Code": pr.employeeCode,
+        "Period": pr.periodName,
+        "Basic Salary": pr.basicSalary,
+        "Present Days": pr.presentDays,
+        "Absent Days": pr.absentDays,
+        "Overtime": pr.overtimeAmount,
+        "Allowances": pr.allowanceAmount,
+        "Deductions": pr.deductionAmount,
+        "Gross Pay": pr.grossPay,
+        "Net Pay": pr.netPay,
+      }));
+      filename = `payroll-${startDate}-to-${endDate}`;
+
+    } else {
+      return createApiResponse({ success: false, message: "Invalid domain", status: 400 });
     }
 
-    const isExcel = format === "excel" || format === "xlsx";
-    const content = isExcel ? new Uint8Array(await convertToExcel(data)) : convertToCSV(data);
-    const mimeType = isExcel
-      ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-      : "text/csv; charset=utf-8";
-    const extension = isExcel ? "xlsx" : "csv";
-
+    const content = convertToCSV(data);
+    
     return new NextResponse(content, {
       status: 200,
       headers: {
-        "Content-Type": mimeType,
-        "Content-Disposition": `attachment; filename="${filename}.${extension}"`,
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${filename}.csv"`,
       },
     });
+
   } catch (error) {
     console.error("Error exporting report:", error);
-    return NextResponse.json({ error: "Failed to export report" }, { status: 500 });
+    return createApiResponse({
+      success: false,
+      message: "Failed to export report",
+      status: 500,
+    });
   }
 }

@@ -2,6 +2,7 @@ import { db } from "@/db";
 import { attendanceLogs, users, sites, employees, faceProfiles, organizations } from "@/db/schema";
 import { and, eq, lt, isNull, desc, sql } from "drizzle-orm";
 import { AttendanceLogEntity } from "../types";
+import { ConflictError, NotFoundError } from "@/lib/errors";
 
 export class AttendanceRepository {
   async findTodayByEmployee(
@@ -62,19 +63,39 @@ export class AttendanceRepository {
     organizationId: string,
     data: Partial<typeof attendanceLogs.$inferInsert>
   ): Promise<AttendanceLogEntity> {
-    const [result] = await db
-      .update(attendanceLogs)
-      .set({
-        ...data,
-        updatedAt: new Date(),
-      })
+    const [current] = await db
+      .select()
+      .from(attendanceLogs)
       .where(
         and(
           eq(attendanceLogs.id, id),
           eq(attendanceLogs.organizationId, organizationId)
         )
       )
+      .limit(1);
+
+    if (!current) throw new NotFoundError("Attendance log not found");
+    const currentVersion = current.version ?? 1;
+
+    const [result] = await db
+      .update(attendanceLogs)
+      .set({
+        ...data,
+        version: currentVersion + 1,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(attendanceLogs.id, id),
+          eq(attendanceLogs.organizationId, organizationId),
+          eq(attendanceLogs.version, currentVersion)
+        )
+      )
       .returning();
+
+    if (!result) {
+      throw new ConflictError("Concurrent modification detected. Please reload and try again.");
+    }
     return result;
   }
 

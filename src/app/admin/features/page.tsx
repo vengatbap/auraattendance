@@ -44,7 +44,8 @@ export default function AdminFeaturesPage() {
       try {
         const res = await fetch("/api/admin/tenants");
         if (!res.ok) throw new Error();
-        const data = await res.json();
+        const body = await res.json();
+        const data = body.data || [];
         setTenants(data);
         if (data.length > 0) {
           setSelectedTenantId(data[0].id);
@@ -66,7 +67,8 @@ export default function AdminFeaturesPage() {
       try {
         const res = await fetch(`/api/admin/features?organizationId=${selectedTenantId}`);
         if (!res.ok) throw new Error();
-        const data = await res.json();
+        const body = await res.json();
+        const data = body.data || {};
         setFlags({
           ...defaultFlags,
           ...(data.featureFlags as Record<string, boolean>),
@@ -180,7 +182,7 @@ export default function AdminFeaturesPage() {
                   { key: "offline", label: "Offline Punch Syncing", desc: "Allows caching logs inside local browser memory." },
                   { key: "adjustments", label: "Log Adjustments Override", desc: "Allows manager corrections and excuses." },
                   { key: "reports", label: "Exports Reports Engine", desc: "Allows downloading monthly sheets." },
-                  { key: "analytics", label: "Realtime Analytics Graphs", desc: "Renders graphical metrics on dashboard." },
+                  { key: "analytics", label: "Analytics Core Engine", desc: "Allows advanced visualization." },
                 ].map((feat) => {
                   const val = flags[feat.key as keyof FeatureFlags];
                   return (

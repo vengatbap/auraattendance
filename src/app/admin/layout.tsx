@@ -3,14 +3,16 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
+import { PermissionService } from "@/lib/rbac";
 import {
   LayoutDashboard,
   Building2,
   Users,
   CreditCard,
   ToggleLeft,
-  LogOut,
   ArrowLeft,
+  Database,
+  ClipboardList,
 } from "lucide-react";
 
 const adminNavItems = [
@@ -19,14 +21,14 @@ const adminNavItems = [
   { label: "Users", href: "/admin/users", icon: Users },
   { label: "Products", href: "/admin/products", icon: CreditCard },
   { label: "Feature Flags", href: "/admin/features", icon: ToggleLeft },
+  { label: "System Status", href: "/admin/system", icon: Database },
+  { label: "Audit Logs", href: "/admin/audit", icon: ClipboardList },
 ];
 
-export default async function AdminLayout({ children }: { children: ReactNode }) {
-  const session = await getSession();
+import { requirePlatformAccess } from "@/lib/auth";
 
-  if (!session || session.role !== "super_admin") {
-    redirect("/dashboard");
-  }
+export default async function AdminLayout({ children }: { children: ReactNode }) {
+  const session = await requirePlatformAccess();
 
   return (
     <div className="flex h-screen bg-[#09090b] text-[#fafafa] font-sans antialiased">
@@ -59,18 +61,6 @@ export default async function AdminLayout({ children }: { children: ReactNode })
           })}
         </nav>
 
-        {/* Footer */}
-        <div className="p-4 border-t border-zinc-900 space-y-1.5">
-          <Link href="/dashboard">
-            <Button
-              variant="ghost"
-              className="w-full justify-start gap-3 px-3.5 py-2.5 h-auto text-xs font-semibold rounded-xl text-zinc-400 hover:bg-zinc-900/50 hover:text-zinc-200 cursor-pointer"
-            >
-              <ArrowLeft className="w-4.5 h-4.5 text-zinc-500" />
-              <span>Back to App</span>
-            </Button>
-          </Link>
-        </div>
       </aside>
 
       {/* Main Content */}

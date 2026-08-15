@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { Download, Loader, PencilLine, Search } from "lucide-react";
 import { toast } from "sonner";
+import { AttendanceCorrectionModal } from "./AttendanceCorrectionModal";
 
 interface AttendanceRow {
   log: {
@@ -45,21 +46,51 @@ interface Site {
   status: string;
 }
 
+type DateFilterType = "today" | "yesterday" | "this_week" | "this_month" | "custom";
+
 export default function AttendancePage() {
   const [rows, setRows] = useState<AttendanceRow[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
-  const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
+  
+  const [dateFilter, setDateFilter] = useState<DateFilterType>("today");
+  const [customStartDate, setCustomStartDate] = useState("");
+  const [customEndDate, setCustomEndDate] = useState("");
+
   const [siteId, setSiteId] = useState("all");
+
+  const [correctionLog, setCorrectionLog] = useState<{ id: string; name: string } | null>(null);
 
   const query = useMemo(() => {
     const params = new URLSearchParams({ limit: "100" });
-    if (date) params.set("date", date);
+
+    const today = new Date();
+    
+    if (dateFilter === "today") {
+      params.set("date", today.toISOString().split("T")[0]);
+    } else if (dateFilter === "yesterday") {
+      const yesterday = new Date(today);
+      yesterday.setDate(today.getDate() - 1);
+      params.set("date", yesterday.toISOString().split("T")[0]);
+    } else if (dateFilter === "this_week") {
+      const startOfWeek = new Date(today);
+      startOfWeek.setDate(today.getDate() - today.getDay());
+      params.set("startDate", startOfWeek.toISOString().split("T")[0]);
+      params.set("endDate", today.toISOString().split("T")[0]);
+    } else if (dateFilter === "this_month") {
+      const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+      params.set("startDate", startOfMonth.toISOString().split("T")[0]);
+      params.set("endDate", today.toISOString().split("T")[0]);
+    } else if (dateFilter === "custom") {
+      if (customStartDate) params.set("startDate", customStartDate);
+      if (customEndDate) params.set("endDate", customEndDate);
+    }
+
     if (siteId !== "all") params.set("siteId", siteId);
     if (searchTerm.trim()) params.set("search", searchTerm.trim());
     return params.toString();
-  }, [date, searchTerm, siteId]);
+  }, [dateFilter, customStartDate, customEndDate, searchTerm, siteId]);
 
   async function fetchData() {
     setLoading(true);
@@ -70,8 +101,9 @@ export default function AttendancePage() {
       ]);
       if (!logsRes.ok) throw new Error("Failed to fetch logs");
       if (!sitesRes.ok) throw new Error("Failed to fetch sites");
-      setRows(await logsRes.json());
-      setSites(await sitesRes.json());
+      const [logsData, sitesData] = await Promise.all([logsRes.json(), sitesRes.json()]);
+      setRows(logsData.data || logsData); // Handle wrapped response
+      setSites(sitesData.data || sitesData); // Handle wrapped response
     } catch {
       toast.error("Failed to load attendance");
     } finally {
@@ -84,20 +116,19 @@ export default function AttendancePage() {
     return () => clearTimeout(t);
   }, [query]);
 
-  const exportHref = `/api/reports/export?type=daily&format=csv&date=${date}${siteId !== "all" ? `&siteId=${siteId}` : ""}`;
+  const exportHref = `/api/reports/export?type=daily&format=csv&${query}`;
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold">Attendance Records</h1>
-          <p className="mt-2 text-slate-400">Today, calendar search, site/date filters, and adjustments</p>
+          <p className="mt-2 text-slate-400">View and adjust employee attendance</p>
         </div>
         <div className="flex gap-2">
           <Link href="/dashboard/attendance/adjustments">
             <Button variant="outline" className="border-slate-700 text-slate-300">
-              <PencilLine className="mr-2 h-4 w-4" />
-              Adjust
+              Adjustment Logs
             </Button>
           </Link>
           <Link href={exportHref}>
@@ -115,35 +146,65 @@ export default function AttendancePage() {
           <CardDescription>{rows.length} records</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-[1fr_180px_220px]">
-            <div className="relative">
+          <div className="flex flex-wrap gap-3">
+            <div className="relative flex-1 min-w-[200px]">
               <Search className="absolute left-3 top-3 h-4 w-4 text-slate-500" />
               <Input
-                placeholder="Search employee, ID, government ID, or site"
+                placeholder="Search employee, code, or site"
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
                 className="border-slate-800 bg-slate-950/50 pl-10 text-slate-100"
               />
             </div>
-            <Input
-              type="date"
-              value={date}
-              onChange={(event) => setDate(event.target.value)}
-              className="border-slate-800 bg-slate-950/50 text-slate-100"
-            />
-            <Select value={siteId} onValueChange={(value) => setSiteId(value ?? "all")}>
-              <SelectTrigger className="border-slate-800 bg-slate-950/50 text-slate-100">
-                <SelectValue placeholder="All sites" />
-              </SelectTrigger>
-              <SelectContent className="border-slate-800 bg-slate-900">
-                <SelectItem value="all" className="text-slate-100">All sites</SelectItem>
-                {sites.map((site) => (
-                  <SelectItem key={site.id} value={site.id} className="text-slate-100">
-                    {site.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            
+            <div className="w-[180px]">
+              <Select value={dateFilter} onValueChange={(v) => setDateFilter(v as DateFilterType)}>
+                <SelectTrigger className="border-slate-800 bg-slate-950/50 text-slate-100">
+                  <SelectValue placeholder="Date range" />
+                </SelectTrigger>
+                <SelectContent className="border-slate-800 bg-slate-900">
+                  <SelectItem value="today" className="text-slate-100">Today</SelectItem>
+                  <SelectItem value="yesterday" className="text-slate-100">Yesterday</SelectItem>
+                  <SelectItem value="this_week" className="text-slate-100">This Week</SelectItem>
+                  <SelectItem value="this_month" className="text-slate-100">This Month</SelectItem>
+                  <SelectItem value="custom" className="text-slate-100">Custom Range</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {dateFilter === "custom" && (
+              <div className="flex items-center gap-2">
+                <Input
+                  type="date"
+                  value={customStartDate}
+                  onChange={(e) => setCustomStartDate(e.target.value)}
+                  className="border-slate-800 bg-slate-950/50 text-slate-100 w-auto"
+                />
+                <span className="text-slate-500">-</span>
+                <Input
+                  type="date"
+                  value={customEndDate}
+                  onChange={(e) => setCustomEndDate(e.target.value)}
+                  className="border-slate-800 bg-slate-950/50 text-slate-100 w-auto"
+                />
+              </div>
+            )}
+
+            <div className="w-[180px]">
+              <Select value={siteId} onValueChange={(value) => setSiteId(value ?? "all")}>
+                <SelectTrigger className="border-slate-800 bg-slate-950/50 text-slate-100">
+                  <SelectValue placeholder="All sites" />
+                </SelectTrigger>
+                <SelectContent className="border-slate-800 bg-slate-900">
+                  <SelectItem value="all" className="text-slate-100">All sites</SelectItem>
+                  {sites.map((site) => (
+                    <SelectItem key={site.id} value={site.id} className="text-slate-100">
+                      {site.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           {loading ? (
@@ -157,20 +218,20 @@ export default function AttendancePage() {
               <table className="w-full text-sm">
                 <thead className="border-b border-slate-700">
                   <tr>
-                    <th className="px-4 py-3 text-left font-semibold">Employee</th>
+                    <th className="px-4 py-3 text-left font-semibold">Date & Employee</th>
                     <th className="px-4 py-3 text-left font-semibold">Site</th>
                     <th className="px-4 py-3 text-left font-semibold">Check In</th>
                     <th className="px-4 py-3 text-left font-semibold">Check Out</th>
                     <th className="px-4 py-3 text-left font-semibold">Status</th>
-                    <th className="px-4 py-3 text-left font-semibold">Face</th>
-                    <th className="px-4 py-3 text-left font-semibold">GPS</th>
+                    <th className="px-4 py-3 text-right font-semibold">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map(({ log, employee, site }) => (
                     <tr key={log.id} className="border-b border-slate-800 hover:bg-slate-800/50">
                       <td className="px-4 py-3">
-                        <div>{employee?.name ?? "Unknown"}</div>
+                        <div className="text-xs text-slate-500 mb-1">{log.date}</div>
+                        <div className="font-medium text-slate-200">{employee?.name ?? "Unknown"}</div>
                         <div className="text-xs text-slate-500">{employee?.employeeCode ?? log.id}</div>
                       </td>
                       <td className="px-4 py-3 text-slate-400">
@@ -194,21 +255,32 @@ export default function AttendancePage() {
                         >
                           {log.status}
                         </span>
-                      </td>
-                      <td className="px-4 py-3 text-slate-400">
-                        {log.confidenceScore ? `${(log.confidenceScore * 100).toFixed(1)}%` : "-"}
-                      </td>
-                      <td className="px-4 py-3 text-slate-400">
-                        <div>
-                          {site && log.gpsDistanceMeters != null
-                            ? `${Math.round(log.gpsDistanceMeters)}m from site`
-                            : "GPS captured"}
-                        </div>
-                        {log.gpsLatitude != null && log.gpsLongitude != null && (
-                          <div className="mt-1 font-mono text-[10px] text-slate-500">
-                            {log.gpsLatitude.toFixed(5)}, {log.gpsLongitude.toFixed(5)}
+                        
+                        {(log.confidenceScore !== null || log.gpsDistanceMeters !== null) && (
+                          <div className="mt-2 flex gap-1 flex-wrap">
+                            {log.confidenceScore !== null && (
+                              <span className="text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded" title="Face Match Score">
+                                👱 {(log.confidenceScore * 100).toFixed(0)}%
+                              </span>
+                            )}
+                            {log.gpsDistanceMeters !== null && (
+                              <span className="text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded" title="GPS Distance from Site">
+                                📍 {Math.round(log.gpsDistanceMeters)}m
+                              </span>
+                            )}
                           </div>
                         )}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setCorrectionLog({ id: log.id, name: employee?.name || 'Unknown' })}
+                          className="text-blue-400 hover:text-blue-300 hover:bg-blue-900/30"
+                        >
+                          <PencilLine className="h-4 w-4 mr-1" />
+                          Adjust
+                        </Button>
                       </td>
                     </tr>
                   ))}
@@ -218,6 +290,16 @@ export default function AttendancePage() {
           )}
         </CardContent>
       </Card>
+      
+      {correctionLog && (
+        <AttendanceCorrectionModal
+          isOpen={!!correctionLog}
+          onClose={() => setCorrectionLog(null)}
+          logId={correctionLog.id}
+          employeeName={correctionLog.name}
+          onSuccess={fetchData}
+        />
+      )}
     </div>
   );
 }

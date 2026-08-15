@@ -10,6 +10,7 @@ export const createEmployeeSchema = z.object({
   phone: z.string().max(50).optional().nullable(),
   email: z.string().email("Invalid email address").max(255).optional().nullable(),
   status: z.enum(["active", "inactive", "suspended", "resigned"]).default("active"),
+  isActive: z.boolean().default(true).optional(),
   enrollmentPhoto: z.string().optional().nullable(),
 });
 
@@ -23,6 +24,7 @@ export const updateEmployeeSchema = z.object({
   phone: z.string().max(50).optional().nullable(),
   email: z.string().email("Invalid email address").max(255).optional().nullable(),
   status: z.enum(["active", "inactive", "suspended", "resigned"]).optional(),
+  isActive: z.boolean().optional(),
   enrollmentPhoto: z.string().optional().nullable(),
 });
 

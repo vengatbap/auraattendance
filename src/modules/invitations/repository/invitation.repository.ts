@@ -1,6 +1,7 @@
 import { db } from "@/db";
 import { userInvitations } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
+import { ConflictError, NotFoundError } from "@/lib/errors";
 
 export const invitationRepository = {
   async findByToken(token: string) {
@@ -41,11 +42,29 @@ export const invitationRepository = {
   },
 
   async updateStatus(id: string, status: "pending" | "accepted" | "expired") {
+    const [current] = await db
+      .select()
+      .from(userInvitations)
+      .where(eq(userInvitations.id, id))
+      .limit(1);
+
+    if (!current) throw new NotFoundError("Invitation not found");
+    const currentVersion = current.version ?? 1;
+
     const [result] = await db
       .update(userInvitations)
-      .set({ status })
-      .where(eq(userInvitations.id, id))
+      .set({ status, version: currentVersion + 1 })
+      .where(
+        and(
+          eq(userInvitations.id, id),
+          eq(userInvitations.version, currentVersion)
+        )
+      )
       .returning();
+
+    if (!result) {
+      throw new ConflictError("Concurrent modification detected. Please reload and try again.");
+    }
     return result;
   },
 };

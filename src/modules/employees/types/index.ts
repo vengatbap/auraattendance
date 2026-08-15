@@ -10,10 +10,12 @@ export interface EmployeeEntity {
   phone: string | null;
   email: string | null;
   status: "active" | "inactive" | "suspended" | "resigned";
+  isActive: boolean;
   enrollmentPhoto: string | null;
   createdAt: Date;
   updatedAt: Date;
   deletedAt: Date | null;
+  version: number;
 }
 
 export interface EmployeeDTO {
@@ -28,12 +30,14 @@ export interface EmployeeDTO {
   phone: string | null;
   email: string | null;
   status: "active" | "inactive" | "suspended" | "resigned";
+  isActive: boolean;
+  isFaceEnrolled?: boolean;
   enrollmentPhoto: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
-export function mapToEmployeeDTO(entity: EmployeeEntity): EmployeeDTO {
+export function mapToEmployeeDTO(entity: EmployeeEntity & { isFaceEnrolled?: boolean }): EmployeeDTO {
   return {
     id: entity.id,
     organizationId: entity.organizationId,
@@ -46,6 +50,8 @@ export function mapToEmployeeDTO(entity: EmployeeEntity): EmployeeDTO {
     phone: entity.phone,
     email: entity.email,
     status: entity.status,
+    isActive: entity.isActive,
+    isFaceEnrolled: entity.isFaceEnrolled,
     enrollmentPhoto: entity.enrollmentPhoto,
     createdAt: entity.createdAt.toISOString(),
     updatedAt: entity.updatedAt.toISOString(),
