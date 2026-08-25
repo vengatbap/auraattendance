@@ -1,6 +1,6 @@
 import { getSession } from "@/lib/auth";
 import { db } from "@/db";
-import { organizations, attendanceLogs, loginHistory } from "@/db/schema";
+import { organizations, attendanceLogs } from "@/db/schema";
 import { desc, sql } from "drizzle-orm";
 import { PermissionService } from "@/lib/rbac";
 import { createApiResponse } from "@/lib/api-response";
@@ -37,15 +37,8 @@ export async function GET() {
         createdAt: organizations.createdAt,
         featureFlags: organizations.featureFlags,
         lastActivityAt: sql<string>`COALESCE(
-          (
-            SELECT MAX(act_time)
-            FROM (
-              SELECT MAX(created_at) as act_time FROM ${attendanceLogs} WHERE ${attendanceLogs.organizationId} = ${organizations.id}
-              UNION ALL
-              SELECT MAX(timestamp) as act_time FROM ${loginHistory} WHERE ${loginHistory.organizationId} = ${organizations.id}
-            ) sub
-          ), 
-          ${organizations.createdAt}
+          (SELECT MAX(created_at) FROM ${attendanceLogs} WHERE ${attendanceLogs.organizationId} = ${organizations.id}),
+          ${organizations.updatedAt}
         )`,
       })
       .from(organizations)

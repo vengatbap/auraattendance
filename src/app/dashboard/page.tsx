@@ -19,30 +19,36 @@ import {
   WifiOff
 } from "lucide-react";
 
+import { OperationsService } from "@/modules/operations/service/operations.service";
+
 async function getDashboardData(orgId: string) {
   const today = toDateString();
+
+  const [attendanceData, rawAnomalies] = await Promise.all([
+    attendanceRepository.getDashboardData(orgId, today),
+    OperationsService.getAnomalies(orgId)
+  ]);
 
   const {
     employeeCount,
     todayAttendance,
     recentPunches,
-  } = await attendanceRepository.getDashboardData(orgId, today);
+  } = attendanceData;
 
-  const checkedInToday = todayAttendance.filter((log) => log.checkInTime).length;
+  const checkedInToday = todayAttendance.length;
   const checkedOutToday = todayAttendance.filter((log) => log.checkOutTime).length;
   const lateToday = todayAttendance.filter((log) => log.status === "late").length;
   const absentToday = Math.max(0, employeeCount - checkedInToday);
 
-  // Mock anomaly counts for V1 UX (these will be powered by operations API in real impl)
   const anomalies = {
-    missingCheckout: todayAttendance.filter((log) => log.checkInTime && !log.checkOutTime).length,
-    outsideRadius: 0,
-    faceIssue: 0,
-    duplicatePunch: 0,
-    offlineSync: 0,
+    missingCheckout: rawAnomalies.filter(a => a.type === "MISSING_CHECKOUT").length,
+    outsideRadius: rawAnomalies.filter(a => a.type === "OUTSIDE_GEOFENCE").length,
+    faceIssue: rawAnomalies.filter(a => a.type === "FACE_LOW_CONFIDENCE" || a.type === "FACE_NOT_REGISTERED").length,
+    duplicatePunch: rawAnomalies.filter(a => a.type === "DUPLICATE_PUNCH").length,
+    offlineSync: rawAnomalies.filter(a => a.type === "OFFLINE_SYNC").length,
   };
 
-  const totalAnomalies = Object.values(anomalies).reduce((a, b) => a + b, 0);
+  const totalAnomalies = rawAnomalies.length;
 
   return {
     employeeCount,

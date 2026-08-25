@@ -1,4 +1,4 @@
-import { getSession } from "@/lib/auth";
+import { getSession, requireTenantContext } from "@/lib/auth";
 import { PermissionService } from "@/modules/permissions/service/permission.service";
 import { redirect } from "next/navigation";
 import { db } from "@/db";
@@ -6,19 +6,30 @@ import { eq, and } from "drizzle-orm";
 import { payslips, organizations } from "@/db/schema";
 import PrintButton from "./PrintButton";
 
-export default async function PayslipPage({ params }: { params: Promise<{ id: string, employeeId: string }> }) {
-  const session = await getSession();
-  if (!session || PermissionService.cannot(session, "payroll.read")) {
+export default async function PayslipPage({ 
+  params,
+  searchParams
+}: { 
+  params: Promise<{ employeeId: string }>;
+  searchParams: Promise<{ runId: string }>;
+}) {
+  const session = await requireTenantContext();
+  if (PermissionService.cannot(session, "payroll.payslip.read")) {
     redirect("/dashboard");
   }
 
-  const { id, employeeId } = await params;
+  const { employeeId } = await params;
+  const { runId } = await searchParams;
+
+  if (!runId) {
+    return <div className="p-6">Run ID is required</div>;
+  }
 
   const payslip = await db.query.payslips.findFirst({
     where: and(
-      eq(payslips.payrollRunId, id),
+      eq(payslips.payrollRunId, runId),
       eq(payslips.employeeId, employeeId),
-      eq(payslips.organizationId, session.organizationId!)
+      eq(payslips.organizationId, session.organizationId)
     ),
     with: {
       employee: true,
@@ -34,7 +45,10 @@ export default async function PayslipPage({ params }: { params: Promise<{ id: st
     where: eq(organizations.id, session.organizationId!)
   });
 
-  const snapshot = payslip.item.calculationSnapshot as any;
+  const snapshot = payslip.item.calculationSnapshot as {
+    salary?: { payFrequency?: string, workingDaysPerPeriod?: number },
+    calculations?: Record<string, string>
+  };
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
@@ -115,13 +129,13 @@ export default async function PayslipPage({ params }: { params: Promise<{ id: st
                   <td className="py-2 text-gray-600">Basic Salary</td>
                   <td className="py-2 text-right font-medium">{payslip.currency} {snapshot?.calculations?.basicSalary || 0}</td>
                 </tr>
-                {parseFloat(snapshot?.calculations?.allowanceAmount || "0") > 0 && (
+                {(snapshot?.calculations?.allowanceAmount && snapshot.calculations.allowanceAmount !== "0" && snapshot.calculations.allowanceAmount !== "0.00") && (
                   <tr>
                     <td className="py-2 text-gray-600">Allowances</td>
                     <td className="py-2 text-right font-medium">{payslip.currency} {snapshot?.calculations?.allowanceAmount}</td>
                   </tr>
                 )}
-                {parseFloat(snapshot?.calculations?.overtimeAmount || "0") > 0 && (
+                {(snapshot?.calculations?.overtimeAmount && snapshot.calculations.overtimeAmount !== "0" && snapshot.calculations.overtimeAmount !== "0.00") && (
                   <tr>
                     <td className="py-2 text-gray-600">Overtime ({snapshot?.calculations?.overtimeHours || 0} hrs)</td>
                     <td className="py-2 text-right font-medium">{payslip.currency} {snapshot?.calculations?.overtimeAmount}</td>
@@ -138,13 +152,13 @@ export default async function PayslipPage({ params }: { params: Promise<{ id: st
             <h3 className="font-semibold text-gray-900 border-b pb-2 mb-3 bg-gray-50 p-2">Deductions</h3>
             <table className="w-full">
               <tbody>
-                {parseFloat(snapshot?.calculations?.deductionAmount || "0") > 0 && (
+                {(snapshot?.calculations?.deductionAmount && snapshot.calculations.deductionAmount !== "0" && snapshot.calculations.deductionAmount !== "0.00") && (
                   <tr>
                     <td className="py-2 text-gray-600">Standard Deductions</td>
                     <td className="py-2 text-right font-medium">{payslip.currency} {snapshot?.calculations?.deductionAmount}</td>
                   </tr>
                 )}
-                {parseFloat(snapshot?.calculations?.unpaidAbsenceAmount || "0") > 0 && (
+                {(snapshot?.calculations?.unpaidAbsenceAmount && snapshot.calculations.unpaidAbsenceAmount !== "0" && snapshot.calculations.unpaidAbsenceAmount !== "0.00") && (
                   <tr>
                     <td className="py-2 text-gray-600">Unpaid Absences</td>
                     <td className="py-2 text-right font-medium">{payslip.currency} {snapshot?.calculations?.unpaidAbsenceAmount}</td>

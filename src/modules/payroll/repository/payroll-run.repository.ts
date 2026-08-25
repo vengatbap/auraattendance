@@ -38,6 +38,16 @@ export class PayrollRunRepository {
     });
   }
 
+  static async findLatest(organizationId: string) {
+    return await db.query.payrollRuns.findFirst({
+      where: eq(payrollRuns.organizationId, organizationId),
+      orderBy: (runs, { desc }) => [desc(runs.createdAt)],
+      with: {
+        period: true,
+      }
+    });
+  }
+
   static async updateTotals(
     id: string,
     organizationId: string,

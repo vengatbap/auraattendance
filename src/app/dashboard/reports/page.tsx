@@ -186,9 +186,17 @@ export default function ReportsPage() {
           employees={employees}
         />
         <ReportCard
-          title="Payroll Summary"
+          title="Payroll Detail"
           domain="payroll"
           desc="Calculated salary, days present, deductions"
+          icon={Coins}
+          sites={sites}
+          employees={employees}
+        />
+        <ReportCard
+          title="Payslip Register"
+          domain="payslip"
+          desc="Index of all issued payslips and net pay"
           icon={Coins}
           sites={sites}
           employees={employees}

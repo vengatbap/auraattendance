@@ -207,6 +207,22 @@ export const faceProfileImages = pgTable("face_profile_images", {
   index("face_profile_images_employee_id_idx").on(table.employeeId),
 ]);
 
+export const attendanceCredentials = pgTable("attendance_credentials", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  employeeId: uuid("employee_id").notNull().references(() => employees.id, { onDelete: "cascade" }),
+  pinHash: varchar("pin_hash", { length: 255 }),
+  enabled: boolean("enabled").notNull().default(true),
+  failedAttempts: integer("failed_attempts").notNull().default(0),
+  lockedUntil: timestamp("locked_until"),
+  lastUsedAt: timestamp("last_used_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  index("attendance_credentials_org_idx").on(table.organizationId),
+  unique("attendance_credentials_emp_unique").on(table.employeeId),
+]);
+
 export const attendanceLogs = pgTable("attendance_logs", {
   id: uuid("id").primaryKey().defaultRandom(),
   organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }),
@@ -228,6 +244,9 @@ export const attendanceLogs = pgTable("attendance_logs", {
   flags: jsonb("flags").default(sql`'[]'::jsonb`).notNull(),
   requestId: varchar("request_id", { length: 100 }),
   isOffline: boolean("is_offline").default(false).notNull(),
+  authenticationMethod: varchar("authentication_method", { length: 50 }).notNull().default("FACE"),
+  authenticationResult: varchar("authentication_result", { length: 50 }).notNull().default("VERIFIED"),
+  performedBy: uuid("performed_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
   deletedAt: timestamp("deleted_at"),
@@ -262,6 +281,9 @@ export const attendanceEvents = pgTable("attendance_events", {
   warnings: jsonb("warnings").default(sql`'[]'::jsonb`).notNull(),
   resultSnapshot: jsonb("result_snapshot"),
   requestId: varchar("request_id", { length: 100 }),
+  authenticationMethod: varchar("authentication_method", { length: 50 }).notNull().default("FACE"),
+  authenticationResult: varchar("authentication_result", { length: 50 }).notNull().default("VERIFIED"),
+  performedBy: uuid("performed_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => [
   index("attendance_events_org_idx").on(table.organizationId),
@@ -690,4 +712,8 @@ export const payslipRelations = relations(payslips, ({ one }) => ({
   run: one(payrollRuns, { fields: [payslips.payrollRunId], references: [payrollRuns.id] }),
   employee: one(employees, { fields: [payslips.employeeId], references: [employees.id] }),
   item: one(payrollItems, { fields: [payslips.payrollItemId], references: [payrollItems.id] }),
+}));
+export const attendanceCredentialRelations = relations(attendanceCredentials, ({ one }) => ({
+  organization: one(organizations, { fields: [attendanceCredentials.organizationId], references: [organizations.id] }),
+  employee: one(employees, { fields: [attendanceCredentials.employeeId], references: [employees.id] }),
 }));

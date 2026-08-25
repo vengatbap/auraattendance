@@ -306,6 +306,15 @@ export default function AttendancePunchPage() {
     }
   });
 
+  const [kioskToken, setKioskToken] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      return localStorage.getItem("aura_kiosk_token");
+    } catch {
+      return null;
+    }
+  });
+
   const [pendingCount, setPendingCount] = useState<number>(() => {
     if (typeof window === "undefined") return 0;
     try {
@@ -427,11 +436,15 @@ export default function AttendancePunchPage() {
 
       const resultData = await res.json();
       if (resultData.success && resultData.data) {
-        const { config, sites: syncedSites, profiles } = resultData.data;
+        const { config, sites: syncedSites, profiles, kioskToken } = resultData.data;
 
         localStorage.setItem("aura_kiosk_config", JSON.stringify(config));
         localStorage.setItem("aura_kiosk_sites", JSON.stringify(syncedSites));
         localStorage.setItem("aura_kiosk_profiles", JSON.stringify(profiles));
+        if (kioskToken) {
+          localStorage.setItem("aura_kiosk_token", kioskToken);
+          setKioskToken(kioskToken);
+        }
 
         setKioskConfig(config);
         setSites(syncedSites);
@@ -508,18 +521,21 @@ export default function AttendancePunchPage() {
       const org = searchParams.get("org") || "aura-demo";
       const orgId = searchParams.get("organizationId");
 
+      const storedKioskToken = localStorage.getItem("aura_kiosk_token") || kioskToken || undefined;
+      const clientEventId = `evt_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+
       const response = await fetch("/api/attendance/punch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          clientEventId,
           descriptor,
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
-          photo,
+          photoUrl: photo,
           browser: navigator.userAgent,
           deviceInfo: navigator.platform,
-          organizationId: orgId || undefined,
-          orgSlug: org || undefined,
+          kioskToken: storedKioskToken,
         }),
       });
 
@@ -538,7 +554,7 @@ export default function AttendancePunchPage() {
     } finally {
       setBusy(false);
     }
-  }, [startCamera, stopCamera, cachedProfiles, sites, kioskConfig]);
+  }, [startCamera, stopCamera, cachedProfiles, sites, kioskConfig, kioskToken]);
 
   // Initialization
   useEffect(() => {

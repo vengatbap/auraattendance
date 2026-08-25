@@ -17,8 +17,10 @@
     "@neondatabase/serverless": "^1.1.0",
     "@tanstack/react-query": "^5.101.0",
     "@tanstack/react-table": "^8.21.3",
+    "@types/bcrypt": "^6.0.0",
     "@vercel/postgres": "^0.10.0",
     "@vladmandic/face-api": "^1.7.15",
+    "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -52,6 +54,7 @@
     "tailwindcss": "^4",
     "tsx": "^4.22.4",
     "typescript": "^5.9.3",
+    "vitest": "^4.1.11",
     "ws": "^8.21.0"
   }
 }

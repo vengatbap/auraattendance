@@ -49,6 +49,10 @@ export class MoneyService {
     return this.fromCents(sum);
   }
 
+  static isGreaterThanZero(amount: string): boolean {
+    return this.toCents(amount) > BigInt(0);
+  }
+
   static subtract(a: string, b: string): string {
     const diff = this.toCents(a) - this.toCents(b);
     return this.fromCents(diff);

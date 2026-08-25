@@ -14,8 +14,8 @@ export default function RunDetailsClient({ runId, status }: { runId: string, sta
     setError(null);
     try {
       await calculateRunAction(runId);
-    } catch (err: any) {
-      setError(err.message || "Failed to calculate run");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to calculate run");
     } finally {
       setLoading(false);
     }
@@ -26,8 +26,8 @@ export default function RunDetailsClient({ runId, status }: { runId: string, sta
     setError(null);
     try {
       await approveRunAction(runId);
-    } catch (err: any) {
-      setError(err.message || "Failed to approve run");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to approve run");
     } finally {
       setLoading(false);
     }
@@ -38,8 +38,8 @@ export default function RunDetailsClient({ runId, status }: { runId: string, sta
     setError(null);
     try {
       await lockRunAction(runId);
-    } catch (err: any) {
-      setError(err.message || "Failed to lock run");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to lock run");
     } finally {
       setLoading(false);
     }

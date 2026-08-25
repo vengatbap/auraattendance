@@ -82,6 +82,20 @@ export async function GET(req: NextRequest) {
           )
         );
 
+      // Mint a short-lived kiosk token so the punch API can verify the org without a user session
+      const secretKey = process.env.JWT_SECRET || "your-super-secret-jwt-key";
+      const key = new TextEncoder().encode(secretKey);
+      const { SignJWT } = await import("jose");
+      const kioskToken = await new SignJWT({
+        organizationId: orgId,
+        kioskId: `kiosk-${orgId.slice(0, 8)}`,
+        type: "kiosk",
+      })
+        .setProtectedHeader({ alg: "HS256" })
+        .setIssuedAt()
+        .setExpirationTime("12h")
+        .sign(key);
+
       return NextResponse.json({
         success: true,
         message: "Kiosk data retrieved successfully",
@@ -89,6 +103,7 @@ export async function GET(req: NextRequest) {
           profiles,
           config,
           sites: activeSites,
+          kioskToken,
         },
       });
     } catch (err: unknown) {

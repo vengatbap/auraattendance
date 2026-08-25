@@ -204,7 +204,7 @@ export class PayrollEngine {
     }
 
     // 3. Overtime
-    if (parseFloat(ctx.overtimeHours) > 0 && parseFloat(ctx.salary.overtimeRate) > 0) {
+    if (MoneyService.isGreaterThanZero(ctx.overtimeHours) && MoneyService.isGreaterThanZero(ctx.salary.overtimeRate)) {
       ctx.overtimeAmount = MoneyService.multiply(ctx.salary.overtimeRate, ctx.overtimeHours);
     }
 

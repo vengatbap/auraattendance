@@ -1,16 +1,15 @@
 import { ReactNode } from "react";
-import Link from "next/link";
-import { redirect } from "next/navigation";
-import { getSession } from "@/lib/auth";
-import { Button } from "@/components/ui/button";
-import { PermissionService } from "@/lib/rbac";
+import { requirePlatformAccess } from "@/lib/auth";
+import { db } from "@/db";
+import { users } from "@/db/schema";
+import { eq } from "drizzle-orm";
+import { AppShell } from "@/components/layout/app-shell";
 import {
   LayoutDashboard,
   Building2,
   Users,
   CreditCard,
   ToggleLeft,
-  ArrowLeft,
   Database,
   ClipboardList,
 } from "lucide-react";
@@ -25,59 +24,29 @@ const adminNavItems = [
   { label: "Audit Logs", href: "/admin/audit", icon: ClipboardList },
 ];
 
-import { requirePlatformAccess } from "@/lib/auth";
-
 export default async function AdminLayout({ children }: { children: ReactNode }) {
   const session = await requirePlatformAccess();
 
+  // Fetch complete user data for the topbar
+  const userRecord = await db.query.users.findFirst({
+    where: eq(users.id, session.userId),
+  });
+
+  const topbarUser = {
+    name: userRecord?.name || "Global Administrator",
+    email: userRecord?.email || "admin@platform",
+    role: "Platform Administrator",
+    isPlatformUser: true,
+    supportTenantId: null
+  };
+
   return (
-    <div className="flex h-screen bg-[#09090b] text-[#fafafa] font-sans antialiased">
-      {/* Sidebar */}
-      <aside className="w-64 bg-[#0c0c0e] border-r border-zinc-900 flex flex-col h-full">
-        {/* Logo */}
-        <div className="p-6 border-b border-zinc-900">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-amber-600/10 border border-amber-500/20 flex items-center justify-center text-amber-500 shadow-sm">
-              <span className="text-base font-extrabold tracking-tight">S</span>
-            </div>
-            <span className="text-base font-black tracking-widest text-amber-500">SUPER PANEL</span>
-          </div>
-        </div>
-
-        {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto p-4 space-y-1">
-          {adminNavItems.map((item) => {
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all duration-150 text-xs font-semibold text-zinc-400 hover:bg-zinc-900/50 hover:text-zinc-200"
-              >
-                <Icon className="w-4.5 h-4.5 text-zinc-500" />
-                <span>{item.label}</span>
-              </Link>
-            );
-          })}
-        </nav>
-
-      </aside>
-
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Top Bar */}
-        <header className="h-14 bg-[#0c0c0e]/80 border-b border-zinc-900 backdrop-blur-md flex items-center justify-between px-6 z-10">
-          <div className="text-xs font-bold text-amber-500 uppercase tracking-widest">Platform Administration Console</div>
-          <div className="text-right">
-            <div className="text-xs font-bold text-zinc-200">Global Administrator</div>
-          </div>
-        </header>
-
-        {/* Page Content */}
-        <main className="flex-1 overflow-auto bg-[#09090b]">
-          <div className="p-6 max-w-7xl mx-auto">{children}</div>
-        </main>
-      </div>
-    </div>
+    <AppShell 
+      user={topbarUser} 
+      navigation={adminNavItems} 
+      title="Platform Control Plane"
+    >
+      <div className="p-4 md:p-8 max-w-7xl mx-auto">{children}</div>
+    </AppShell>
   );
 }
