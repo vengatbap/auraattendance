@@ -169,15 +169,22 @@ export class OperationsService {
     if (id.startsWith("MC_") && resolutionType === "suggest_checkout") {
       updateData.checkOutTime = new Date(extraData.checkOutTime);
       updateData.updatedAt = new Date();
+      updateData.authenticationMethod = "SUPERVISOR";
+      updateData.performedBy = userId;
       afterState.checkOutTime = updateData.checkOutTime;
     } else if (id.startsWith("OG_") && resolutionType === "adjust") {
       updateData.updatedAt = new Date();
+      updateData.authenticationMethod = "SUPERVISOR";
+      updateData.performedBy = userId;
       if (extraData.status) {
          updateData.status = extraData.status;
          afterState.status = extraData.status;
       }
     } else if (resolutionType === "accept" || resolutionType === "keep_original" || resolutionType === "review") {
       updateData.updatedAt = new Date();
+      updateData.authenticationMethod = "SUPERVISOR";
+      updateData.performedBy = userId;
+      updateData.authenticationResult = "VERIFIED";
     }
 
     if (Object.keys(updateData).length > 1) {

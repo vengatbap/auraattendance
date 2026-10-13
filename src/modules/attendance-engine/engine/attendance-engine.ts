@@ -3,7 +3,8 @@ import { PunchContext } from "./context";
 import { PunchPipeline } from "./pipeline";
 import { TenantStage } from "../stages/tenant-stage";
 import { IdempotencyStage } from "../stages/idempotency-stage";
-import { FaceIdentificationStage } from "../stages/face-identification-stage";
+import { AuthenticationStage } from "../stages/authentication-stage";
+
 import { EmployeeValidationStage } from "../stages/employee-validation-stage";
 import { GeofenceStage } from "../stages/geofence-stage";
 import { AttendanceStateStage } from "../stages/attendance-state-stage";
@@ -30,7 +31,8 @@ export class AttendanceEngine {
     const pipeline = new PunchPipeline([
       new TenantStage(),
       new IdempotencyStage(),
-      new FaceIdentificationStage(),
+      new AuthenticationStage(),
+
       new EmployeeValidationStage(),
       new GeofenceStage(),
       new AttendanceStateStage(),

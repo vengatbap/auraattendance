@@ -30,6 +30,9 @@ export interface PunchInput {
   kioskToken?: string;
   employeeCode?: string;
   employeeId?: string;
+  authMethod?: "FACE" | "PIN" | "FINGERPRINT" | "SUPERVISOR";
+  pin?: string;
+  faceMatchPassed?: boolean;
   descriptor?: number[];
   photoUrl?: string;
   latitude?: number;

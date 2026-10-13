@@ -22,6 +22,9 @@ export interface PunchContext {
   faceThreshold?: number;
   faceMatchPassed?: boolean;
 
+  authMethod?: "FACE" | "PIN" | "FINGERPRINT" | "SUPERVISOR";
+  authResult?: "VERIFIED" | "FAILED";
+
   currentLog?: AttendanceLogEntity;
 
   resolvedPunchType?: "CHECK_IN" | "CHECK_OUT";

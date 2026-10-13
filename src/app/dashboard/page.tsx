@@ -110,142 +110,67 @@ export default async function DashboardPage() {
   ];
 
   return (
-    <div className="space-y-8">
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <h1 className="text-3xl font-black tracking-tight text-white">Morning Overview</h1>
-          <p className="text-zinc-500 mt-1 text-sm">Review today's attendance and resolve anomalies.</p>
+    <div className="max-w-3xl mx-auto mt-8 space-y-8">
+      <div>
+        <h1 className="text-2xl font-bold text-white tracking-tight">Good morning 👋</h1>
+      </div>
+
+      <div className="border border-zinc-800 rounded-2xl bg-[#0a0a0c] overflow-hidden shadow-sm">
+        <div className="px-6 py-4 border-b border-zinc-800 bg-[#0e0e11]">
+          <h2 className="font-bold text-zinc-100">Today</h2>
         </div>
-        <Link href="/dashboard/operations">
-          <Button className="bg-amber-600 hover:bg-amber-700 text-white font-bold px-5 py-2.5 rounded-xl h-10 text-xs shadow-sm cursor-pointer transition-colors duration-150">
-            Open Operations Hub
-            <ArrowRight className="size-3.5 ml-1.5" />
-          </Button>
-        </Link>
+        <div className="divide-y divide-zinc-800/60">
+          <div className="flex justify-between px-6 py-4 hover:bg-zinc-900/30">
+            <span className="font-medium text-zinc-300">Present</span>
+            <span className="font-bold text-white">{data.checkedInToday}</span>
+          </div>
+          <div className="flex justify-between px-6 py-4 hover:bg-zinc-900/30">
+            <span className="font-medium text-zinc-300">Late</span>
+            <span className="font-bold text-white">{data.lateToday}</span>
+          </div>
+          <div className="flex justify-between px-6 py-4 hover:bg-zinc-900/30">
+            <span className="font-medium text-zinc-300">Missing Out</span>
+            <span className="font-bold text-white">{data.anomalies.missingCheckout}</span>
+          </div>
+          <div className="flex justify-between px-6 py-4 hover:bg-zinc-900/30">
+            <span className="font-medium text-zinc-300">Needs Review</span>
+            <span className="font-bold text-rose-400">{data.totalAnomalies}</span>
+          </div>
+        </div>
+
+        {data.totalAnomalies > 0 && (
+          <div className="p-6 flex justify-center bg-[#0e0e11] border-t border-zinc-800">
+            <Link href="/dashboard/operations">
+              <Button className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-8 h-10 shadow-sm">
+                [ Review {data.totalAnomalies} Issues ]
+              </Button>
+            </Link>
+          </div>
+        )}
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        {stats.map((stat) => (
-          <Card key={stat.title} className="bg-[#0e0e11] border-zinc-900 rounded-2xl shadow-sm overflow-hidden relative group hover:border-zinc-800 transition-all duration-300">
-            <div className="absolute inset-0 bg-gradient-to-br from-white/1 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-            <CardHeader className="pb-3 flex flex-row items-center justify-between">
-              <CardTitle className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">{stat.title}</CardTitle>
-              <div className={`p-2 rounded-xl border ${stat.color}`}>
-                <stat.icon className="size-4" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-black text-white">{stat.value}</div>
-              <p className="text-zinc-500 text-[11px] mt-1.5 font-medium">{stat.description}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_0.8fr] gap-6">
-        {/* Left: Needs Attention */}
-        <div className="space-y-6">
-          <Card className="bg-[#0e0e11] border-rose-900/40 rounded-2xl shadow-sm overflow-hidden relative">
-            <CardHeader className="pb-4 border-b border-zinc-900/60">
-              <div className="flex justify-between items-center">
-                <div>
-                  <CardTitle className="text-base font-bold flex items-center gap-2 text-rose-500">
-                    <AlertTriangle className="size-5" />
-                    Needs Attention
-                  </CardTitle>
-                  <CardDescription className="text-xs text-zinc-500 mt-1">Anomalies requiring administrator resolution.</CardDescription>
-                </div>
-                {data.totalAnomalies > 0 && (
-                  <span className="text-[10px] font-bold bg-rose-500/10 border border-rose-500/20 text-rose-400 px-3 py-1 rounded-full animate-pulse">
-                    {data.totalAnomalies} unresolved
+      <div className="border border-zinc-800 rounded-2xl bg-[#0a0a0c] overflow-hidden shadow-sm">
+        <div className="px-6 py-4 border-b border-zinc-800 bg-[#0e0e11]">
+          <h2 className="font-bold text-zinc-100">Recent Attendance</h2>
+        </div>
+        <div className="p-6">
+          {data.recentPunches.length === 0 ? (
+            <p className="text-zinc-500 text-sm text-center py-4">No recent activity.</p>
+          ) : (
+            <div className="space-y-4">
+              {data.recentPunches.slice(0, 5).map(punch => (
+                <div key={punch.id} className="flex justify-between items-center text-sm">
+                  <div>
+                    <span className="font-semibold text-zinc-200">{punch.employeeName}</span>
+                    <span className="text-zinc-500 ml-2">{punch.checkOutTime ? 'Checked out' : 'Checked in'}</span>
+                  </div>
+                  <span className="text-zinc-400">
+                    {new Date(punch.checkOutTime || punch.checkInTime || '').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </span>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="divide-y divide-zinc-900/60">
-                {needsAttentionList.map((item, idx) => (
-                  <Link href={`/dashboard/operations?filter=${item.label.toLowerCase().replace(/ /g, '-')}`} key={idx} className="flex items-center justify-between p-4 hover:bg-zinc-900/50 transition-colors group cursor-pointer">
-                    <div className="flex items-center gap-4">
-                      <div className={`p-2 rounded-lg ${item.bg} ${item.color}`}>
-                        <item.icon className="size-4" />
-                      </div>
-                      <span className="text-sm font-semibold text-zinc-200">{item.label}</span>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <span className={`text-sm font-black ${item.count > 0 ? "text-white" : "text-zinc-600"}`}>
-                        {item.count}
-                      </span>
-                      <ArrowRight className={`size-4 transition-transform group-hover:translate-x-1 ${item.count > 0 ? "text-zinc-400" : "text-zinc-700"}`} />
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Right: Live activity log */}
-        <div className="space-y-6">
-          <Card className="bg-[#0e0e11] border-zinc-900 rounded-2xl shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-sm font-bold flex items-center gap-2 text-white">
-                <Clock className="size-4.5 text-zinc-400" />
-                Recent Punches
-              </CardTitle>
-              <CardDescription className="text-xs text-zinc-500">Latest active logs captured at Kiosk.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4 py-4 border-t border-zinc-900/60 mt-2 h-[400px] overflow-y-auto">
-              {data.recentPunches.length === 0 ? (
-                <p className="text-zinc-650 text-xs py-4 text-center">No punch activity recorded today.</p>
-              ) : (
-                <div className="flow-root">
-                  <ul className="-mb-8">
-                    {data.recentPunches.map((punch, idx) => (
-                      <li key={punch.id}>
-                        <div className="relative pb-8">
-                          {idx !== data.recentPunches.length - 1 ? (
-                            <span className="absolute left-4 top-4 -ml-px h-full w-0.5 bg-zinc-950" aria-hidden="true" />
-                          ) : null}
-                          <div className="relative flex space-x-3">
-                            <div>
-                              <span className={`h-8 w-8 rounded-xl flex items-center justify-center border ${
-                                punch.checkOutTime
-                                  ? "bg-zinc-950 border-zinc-900 text-zinc-400"
-                                  : "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
-                              }`}>
-                                <CheckCircle className="size-3.5" />
-                              </span>
-                            </div>
-                            <div className="flex-1 min-w-0 pt-1.5 flex justify-between space-x-4">
-                              <div>
-                                <p className="text-xs font-bold text-zinc-200">
-                                  {punch.employeeName}{" "}
-                                  <span className="text-[10px] text-zinc-555 font-normal font-mono">({punch.employeeCode})</span>
-                                </p>
-                                <p className="text-[10px] text-zinc-500 mt-0.5">
-                                  {punch.checkOutTime ? "Checked out" : "Checked in"}{" "}
-                                  {punch.status === "late" && (
-                                    <span className="text-amber-500 font-black uppercase text-[8px] tracking-wider ml-1">LATE</span>
-                                  )}
-                                </p>
-                              </div>
-                              <div className="text-right text-[10px] whitespace-nowrap text-zinc-500">
-                                <time dateTime={new Date(punch.checkOutTime || punch.checkInTime || "").toISOString()}>
-                                  {new Date(punch.checkOutTime || punch.checkInTime || "").toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                                </time>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
                 </div>
-              )}
-            </CardContent>
-          </Card>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

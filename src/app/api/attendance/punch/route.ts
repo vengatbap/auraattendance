@@ -86,6 +86,9 @@ export async function POST(req: NextRequest) {
         browser: body.browser,
         capturedAt: body.capturedAt || new Date().toISOString(),
         isOffline: body.isOffline ?? false,
+        authMethod: body.authMethod || "FACE",
+        pin: body.pin,
+        faceMatchPassed: body.faceMatchPassed,
       };
 
       if (!input.clientEventId) {

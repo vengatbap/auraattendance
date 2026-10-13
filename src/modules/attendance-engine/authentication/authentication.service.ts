@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { attendanceCredentials } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import * as bcrypt from "bcrypt";
 
 export type AuthenticationMethod = "FACE" | "PIN" | "FINGERPRINT" | "SUPERVISOR";
@@ -53,7 +53,7 @@ export class AuthenticationService {
       return { success: false, method: "PIN", reason: "Missing employee code or PIN" };
     }
 
-    const [credential] = await db.select().from(attendanceCredentials).where(eq(attendanceCredentials.employeeId, employeeId));
+    const [credential] = await db.select().from(attendanceCredentials).where(and(eq(attendanceCredentials.organizationId, orgId), eq(attendanceCredentials.employeeId, employeeId)));
 
     if (!credential) {
       return { success: false, method: "PIN", reason: "No PIN credential found for employee" };

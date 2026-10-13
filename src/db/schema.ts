@@ -25,6 +25,9 @@ export const organizations = pgTable("organizations", {
   secondaryColor: varchar("secondary_color", { length: 50 }).notNull().default("#4f46e5"),
   loginBackground: text("login_background"),
   sidebarLogo: text("sidebar_logo"),
+  attendanceFaceEnabled: boolean("attendance_face_enabled").notNull().default(true),
+  attendancePinFallbackEnabled: boolean("attendance_pin_fallback_enabled").notNull().default(true),
+
   companyName: varchar("company_name", { length: 255 }),
   supportEmail: varchar("support_email", { length: 255 }),
   timezone: varchar("timezone", { length: 100 }).notNull().default("UTC"),

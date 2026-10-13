@@ -15,7 +15,7 @@ export default async function OperationsPage() {
   }
 
   return (
-    <div className="flex-1 space-y-4 p-8 pt-6 max-w-7xl mx-auto">
+    <div className="flex-1 w-full min-h-[calc(100vh-4rem)] p-4 sm:p-8 pt-10">
       <OperationsClient />
     </div>
   );

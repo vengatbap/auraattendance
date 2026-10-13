@@ -46,6 +46,8 @@ export class PersistStage implements PunchStage {
       warnings: context.warnings,
       resultSnapshot: context.result ?? null,
       requestId: context.requestId,
+      authenticationMethod: context.authMethod || "FACE",
+      authenticationResult: context.authResult || "FAILED",
     };
 
     try {
@@ -81,6 +83,8 @@ export class PersistStage implements PunchStage {
                 flags: context.flags,
                 requestId: context.requestId,
                 isOffline: context.input.isOffline ?? false,
+                authenticationMethod: context.authMethod || "FACE",
+                authenticationResult: context.authResult || "FAILED",
               })
               .returning();
             return insertedLog;

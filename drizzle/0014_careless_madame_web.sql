@@ -1,0 +1,2 @@
+ALTER TABLE "organizations" ADD COLUMN "attendance_face_enabled" boolean DEFAULT true NOT NULL;--> statement-breakpoint
+ALTER TABLE "organizations" ADD COLUMN "attendance_pin_fallback_enabled" boolean DEFAULT true NOT NULL;

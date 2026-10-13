@@ -1,91 +1,70 @@
 "use client";
 
-import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  ArrowRight,
-  Building2,
-  Camera,
-  Check,
-  Clock3,
-  LoaderCircle,
-  LocateFixed,
-  LockKeyhole,
-  MapPin,
-  RefreshCw,
-  ScanFace,
-  ShieldCheck,
-  TriangleAlert,
-  Wifi,
-  WifiOff,
-  Sparkles,
-  HelpCircle,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ScanFace, Wifi, WifiOff, Camera, RefreshCw, ChevronLeft } from "lucide-react";
 import { haversineDistance, toDateString } from "@/utils";
 import { toast } from "sonner";
 
+// ─────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────
+
 interface Site {
-  id: string;
-  name: string;
-  latitude: number;
-  longitude: number;
-  radius: number;
+  id: string; name: string;
+  latitude: number; longitude: number; radius: number;
 }
 
 interface Profile {
-  employeeId: string;
-  embedding: number[];
-  name: string;
-  employeeCode: string;
+  employeeId: string; embedding: number[];
+  name: string; employeeCode: string;
 }
 
 interface KioskConfig {
-  id: string;
-  name: string;
-  allowMultiplePunches: boolean;
-  minimumPunchGapMinutes: number;
-  autoCheckout: boolean;
-  autoCheckoutTime: string;
-  gracePeriodMinutes: number;
-  lateAfterTime: string;
+  id: string; name: string;
+  allowMultiplePunches: boolean; minimumPunchGapMinutes: number;
+  autoCheckout: boolean; autoCheckoutTime: string;
+  gracePeriodMinutes: number; lateAfterTime: string;
   faceMatchThreshold: number;
-}
-
-interface LocationReading {
-  latitude: number;
-  longitude: number;
-  accuracy: number;
 }
 
 interface PunchResult {
   action: "check_in" | "check_out" | "already_checked_out";
-  matched: boolean;
   employee: { name: string; employeeCode: string };
   site: { name: string };
   faceScore: number;
   distanceMeters: number | null;
   locationMatched: boolean;
-  latitude: number;
-  longitude: number;
+  latitude: number; longitude: number;
 }
 
 interface PendingPunch {
-  employeeId: string;
-  siteId: string | null;
-  timestamp: string;
-  latitude: number;
-  longitude: number;
-  photo?: string;
-  deviceInfo?: string;
-  browser?: string;
+  employeeId: string; siteId: string | null;
+  timestamp: string; latitude: number; longitude: number;
+  photo?: string; deviceInfo?: string; browser?: string;
   action: "check_in" | "check_out";
   status: "present" | "late";
   faceScore: number;
-  employeeName: string;
-  employeeCode: string;
-  siteName: string;
+  employeeName: string; employeeCode: string; siteName: string;
 }
+
+type KioskMode = "FACE" | "PIN" | "RESULT" | "ERROR" | "CAMERA_ERROR";
+type CameraState = "STARTING" | "READY" | "SCANNING" | "DENIED" | "UNAVAILABLE" | "FACE_DETECTED" | "VERIFYING";
+
+// Map backend error codes → human messages
+const ERROR_MESSAGES: Record<string, string> = {
+  FACE_NOT_REGISTERED: "Face not registered. Please use PIN or contact your supervisor.",
+  FACE_LOW_CONFIDENCE: "Face could not be verified. Try again or use PIN.",
+  OUTSIDE_GEOFENCE: "You are outside the permitted attendance area.",
+  DUPLICATE_PUNCH: "Attendance was already recorded.",
+  RATE_LIMIT_EXCEEDED: "Too many attempts. Please wait a moment.",
+  INACTIVE: "Attendance is currently unavailable. Contact your administrator.",
+  SUSPENDED: "Attendance is currently unavailable. Contact your administrator.",
+  DEFAULT: "Verification failed. Please try again or use PIN.",
+};
+
+// ─────────────────────────────────────────
+// Face model loader (singleton)
+// ─────────────────────────────────────────
 
 let faceModelsPromise: Promise<typeof import("@vladmandic/face-api")> | null = null;
 const FACE_MODEL_URL = "https://justadudewhohacks.github.io/face-api.js/models";
@@ -108,18 +87,16 @@ function capturePhoto(video: HTMLVideoElement | null, canvas: HTMLCanvasElement 
   if (!video || !canvas || !video.videoWidth) return null;
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
-  const context = canvas.getContext("2d");
-  if (!context) return null;
-  context.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
   return canvas.toDataURL("image/jpeg", 0.86);
 }
 
 function getFreshLocation() {
   return new Promise<GeolocationPosition>((resolve, reject) => {
     navigator.geolocation.getCurrentPosition(resolve, reject, {
-      enableHighAccuracy: true,
-      maximumAge: 0,
-      timeout: 12_000,
+      enableHighAccuracy: true, maximumAge: 0, timeout: 12_000,
     });
   });
 }
@@ -128,253 +105,147 @@ async function generateDescriptor(photo: string) {
   const faceapi = await loadFaceModels();
   const image = new Image();
   image.src = photo;
-  await new Promise((resolve) => {
-    image.onload = resolve;
-  });
-  const detection = await faceapi
-    .detectSingleFace(image)
-    .withFaceLandmarks()
-    .withFaceDescriptor();
-  if (!detection) throw new Error("No face detected. Center your face and try again.");
+  await new Promise((resolve) => { image.onload = resolve; });
+  const detection = await faceapi.detectSingleFace(image).withFaceLandmarks().withFaceDescriptor();
+  if (!detection) throw new Error("NO_FACE");
   return Array.from(detection.descriptor);
 }
 
-// Helper function for local matching (pure logic, extracted from component to prevent closure warning)
-function matchLocalEmbedding(descriptor: number[], cachedProfiles: Profile[], faceMatchThreshold = 0.6) {
-  if (cachedProfiles.length === 0) return null;
-
-  let bestMatch: { profile: Profile; distance: number } | null = null;
-
-  for (const profile of cachedProfiles) {
-    const target = profile.embedding;
+function matchLocalEmbedding(descriptor: number[], profiles: Profile[], threshold = 0.6) {
+  if (!profiles.length) return null;
+  let best: { profile: Profile; distance: number } | null = null;
+  for (const p of profiles) {
     let sum = 0;
-    for (let i = 0; i < descriptor.length; i++) {
-      sum += Math.pow(descriptor[i] - target[i], 2);
-    }
-    const distance = Math.sqrt(sum);
-
-    if (!bestMatch || distance < bestMatch.distance) {
-      bestMatch = { profile, distance };
-    }
+    for (let i = 0; i < descriptor.length; i++) sum += (descriptor[i] - p.embedding[i]) ** 2;
+    const d = Math.sqrt(sum);
+    if (!best || d < best.distance) best = { profile: p, distance: d };
   }
-
-  if (bestMatch && bestMatch.distance <= faceMatchThreshold) {
-    return {
-      employeeId: bestMatch.profile.employeeId,
-      name: bestMatch.profile.name,
-      employeeCode: bestMatch.profile.employeeCode,
-      score: 1 - bestMatch.distance,
-    };
+  if (best && best.distance <= threshold) {
+    return { employeeId: best.profile.employeeId, name: best.profile.name, employeeCode: best.profile.employeeCode, score: 1 - best.distance };
   }
-
   return null;
 }
 
-// Extracted offline punch calculations to keep components clean
 function processOfflinePunch(
-  descriptor: number[],
-  coords: { latitude: number; longitude: number },
-  photo: string,
-  cachedProfiles: Profile[],
-  sites: Site[],
-  kioskConfig: KioskConfig | null
+  descriptor: number[], coords: { latitude: number; longitude: number },
+  photo: string, cachedProfiles: Profile[], sites: Site[], kioskConfig: KioskConfig | null
 ): PunchResult {
-  // 1. Match embedding
   const match = matchLocalEmbedding(descriptor, cachedProfiles, kioskConfig?.faceMatchThreshold);
-  if (!match) throw new Error("Face not recognized locally");
+  if (!match) throw new Error("FACE_NOT_REGISTERED");
 
-  // 2. Geofence Site Detection
   const nearest = sites
-    .map((candidate) => ({
-      site: candidate,
-      distance: haversineDistance(
-        coords.latitude,
-        coords.longitude,
-        candidate.latitude,
-        candidate.longitude
-      ),
-    }))
+    .map((s) => ({ site: s, distance: haversineDistance(coords.latitude, coords.longitude, s.latitude, s.longitude) }))
     .sort((a, b) => a.distance - b.distance)[0];
 
-  const matchedSite =
-    nearest && nearest.distance <= nearest.site.radius ? nearest.site : null;
-  const distance = nearest?.distance ?? null;
+  const matchedSite = nearest && nearest.distance <= nearest.site.radius ? nearest.site : null;
 
-  const siteResult = matchedSite
-    ? { id: matchedSite.id, name: matchedSite.name, matched: true }
-    : { id: null, name: "Unknown location", matched: false };
-
-  // 3. Determine check-in / check-out action based on locally queued punches for today
   const today = toDateString();
-  const queuedPunchesRaw = localStorage.getItem("aura_pending_punches") || "[]";
-  const queue: PendingPunch[] = JSON.parse(queuedPunchesRaw);
+  const queue: PendingPunch[] = JSON.parse(localStorage.getItem("aura_pending_punches") || "[]");
+  const existing = queue.find((p) => p.employeeId === match.employeeId && p.timestamp.startsWith(today));
 
-  const existingToday = queue.find(
-    (p) => p.employeeId === match.employeeId && p.timestamp.startsWith(today)
-  );
+  let action: PunchResult["action"] = "check_in";
+  if (existing?.action === "check_in") action = "check_out";
+  else if (existing?.action === "check_out") action = "already_checked_out";
 
-  let action: "check_in" | "check_out" | "already_checked_out" = "check_in";
-  if (existingToday) {
-    if (existingToday.action === "check_in") {
-      action = "check_out";
-    } else {
-      action = "already_checked_out";
-    }
-  }
-
-  // 4. Late calculations
-  const [lateHour, lateMinute] = (kioskConfig?.lateAfterTime || "09:15")
-    .split(":")
-    .map(Number);
+  const [lh, lm] = (kioskConfig?.lateAfterTime || "09:15").split(":").map(Number);
   const grace = kioskConfig?.gracePeriodMinutes ?? 15;
-  const lateLimitMinutes = lateHour * 60 + lateMinute + grace;
-
-  const nowTime = new Date();
-  const currentMinutes = nowTime.getHours() * 60 + nowTime.getMinutes();
-  const status: "present" | "late" = currentMinutes > lateLimitMinutes ? "late" : "present";
+  const now = new Date();
+  const status: "present" | "late" = now.getHours() * 60 + now.getMinutes() > lh * 60 + lm + grace ? "late" : "present";
 
   if (action !== "already_checked_out") {
-    const newPendingPunch: PendingPunch = {
-      employeeId: match.employeeId,
-      siteId: siteResult.id,
-      timestamp: nowTime.toISOString(),
-      latitude: coords.latitude,
-      longitude: coords.longitude,
-      photo,
-      deviceInfo: navigator.platform,
-      browser: navigator.userAgent,
-      action: action === "check_in" ? "check_in" : "check_out",
-      status,
-      faceScore: match.score,
-      employeeName: match.name,
-      employeeCode: match.employeeCode,
-      siteName: siteResult.name,
-    };
-
-    queue.push(newPendingPunch);
+    queue.push({
+      employeeId: match.employeeId, siteId: matchedSite?.id ?? null,
+      timestamp: now.toISOString(), latitude: coords.latitude, longitude: coords.longitude,
+      photo, deviceInfo: navigator.platform, browser: navigator.userAgent,
+      action: action as "check_in" | "check_out", status,
+      faceScore: match.score, employeeName: match.name,
+      employeeCode: match.employeeCode, siteName: matchedSite?.name ?? "Unknown",
+    });
     localStorage.setItem("aura_pending_punches", JSON.stringify(queue));
   }
 
   return {
-    action,
-    matched: true,
-    employee: { name: match.name, employeeCode: match.employeeCode },
-    site: { name: siteResult.name },
-    faceScore: match.score,
-    distanceMeters: distance,
-    locationMatched: Boolean(matchedSite),
-    latitude: coords.latitude,
-    longitude: coords.longitude,
+    action, employee: { name: match.name, employeeCode: match.employeeCode },
+    site: { name: matchedSite?.name ?? "Unknown" }, faceScore: match.score,
+    distanceMeters: nearest?.distance ?? null, locationMatched: !!matchedSite,
+    latitude: coords.latitude, longitude: coords.longitude,
   };
 }
+
+// ─────────────────────────────────────────
+// Main Kiosk Page
+// ─────────────────────────────────────────
 
 export default function AttendancePunchPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const autoTrackActiveRef = useRef(false);
+  const holdStartRef = useRef<number | null>(null);
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // States with lazy initializers to avoid mount-time synchronous state triggers
-  const [isOnline, setIsOnline] = useState(() => typeof window !== "undefined" ? navigator.onLine : true);
+  const [isOnline, setIsOnline] = useState(() =>
+    typeof window !== "undefined" ? navigator.onLine : true
+  );
+  const [mode, setMode] = useState<KioskMode>("FACE");
+  const [cameraState, setCameraState] = useState<CameraState>("STARTING");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<PunchResult | null>(null);
+  const [errorCode, setErrorCode] = useState<string>("");
+  const [errorMsg, setErrorMsg] = useState<string>("");
+  const [now, setNow] = useState(() => new Date());
+  const [pendingCount, setPendingCount] = useState(0);
 
-  const [sites, setSites] = useState<Site[]>(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const cached = localStorage.getItem("aura_kiosk_sites");
-      return cached ? JSON.parse(cached) : [];
-    } catch {
-      return [];
-    }
+  // Cached data from localStorage
+  const [sites] = useState<Site[]>(() => {
+    try { return JSON.parse(localStorage.getItem("aura_kiosk_sites") || "[]"); } catch { return []; }
+  });
+  const [cachedProfiles] = useState<Profile[]>(() => {
+    try { return JSON.parse(localStorage.getItem("aura_kiosk_profiles") || "[]"); } catch { return []; }
+  });
+  const [kioskConfig] = useState<KioskConfig | null>(() => {
+    try { return JSON.parse(localStorage.getItem("aura_kiosk_config") || "null"); } catch { return null; }
+  });
+  const [kioskToken] = useState<string | null>(() => {
+    try { return localStorage.getItem("aura_kiosk_token"); } catch { return null; }
   });
 
-  const [cachedProfiles, setCachedProfiles] = useState<Profile[]>(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const cached = localStorage.getItem("aura_kiosk_profiles");
-      return cached ? JSON.parse(cached) : [];
-    } catch {
-      return [];
-    }
-  });
+  // Clock tick
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
-  const [kioskConfig, setKioskConfig] = useState<KioskConfig | null>(() => {
-    if (typeof window === "undefined") return null;
-    try {
-      const cached = localStorage.getItem("aura_kiosk_config");
-      return cached ? JSON.parse(cached) : null;
-    } catch {
-      return null;
-    }
-  });
+  // Online/offline detection
+  useEffect(() => {
+    const onOnline = () => setIsOnline(true);
+    const onOffline = () => setIsOnline(false);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => { window.removeEventListener("online", onOnline); window.removeEventListener("offline", onOffline); };
+  }, []);
 
-  const [kioskToken, setKioskToken] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    try {
-      return localStorage.getItem("aura_kiosk_token");
-    } catch {
-      return null;
-    }
-  });
-
-  const [pendingCount, setPendingCount] = useState<number>(() => {
-    if (typeof window === "undefined") return 0;
+  // Pending count from localStorage
+  useEffect(() => {
     try {
       const cached = localStorage.getItem("aura_pending_punches");
-      return cached ? JSON.parse(cached).length : 0;
-    } catch {
-      return 0;
-    }
-  });
+      setPendingCount(cached ? JSON.parse(cached).length : 0);
+    } catch { setPendingCount(0); }
+  }, []);
 
-  const [location, setLocation] = useState<LocationReading | null>(null);
-  const [locationBusy, setLocationBusy] = useState(true);
-  const [streaming, setStreaming] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [result, setResult] = useState<PunchResult | null>(null);
-  const [now, setNow] = useState(() => new Date());
-  const [autoCaptureStatus, setAutoCaptureStatus] = useState<string>("");
+  // ── Camera controls ──────────────────────────────────────────
 
-  // Demo walkthrough steps
-  const [showWalkthrough, setShowWalkthrough] = useState(false);
-  const [walkthroughStep, setWalkthroughStep] = useState(0);
-
-  // Stop Webcam
   const stopCamera = useCallback(() => {
-    streamRef.current?.getTracks().forEach((track) => track.stop());
+    autoTrackActiveRef.current = false;
+    holdStartRef.current = null;
+    streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
-    setStreaming(false);
+    setCameraState("STARTING");
   }, []);
 
-  // Request GPS Location
-  const requestLocation = useCallback(async () => {
-    setLocationBusy(true);
-    setError("");
-    try {
-      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          maximumAge: 15_000,
-          timeout: 12_000,
-        });
-      });
-      setLocation({
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude,
-        accuracy: position.coords.accuracy,
-      });
-    } catch {
-      setLocation(null);
-      setError("Location access is required to bind attendance to an approved site.");
-    } finally {
-      setLocationBusy(false);
-    }
-  }, []);
-
-  // Start Camera
   const startCamera = useCallback(async () => {
-    setError("");
-    setResult(null);
+    setCameraState("STARTING");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 960 } },
@@ -385,656 +256,659 @@ export default function AttendancePunchPage() {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
       }
-      setStreaming(true);
-      void loadFaceModels().catch(() => setError("Face recognition models could not be loaded."));
-    } catch {
-      setError("Camera access is required to verify your identity. Please enable permissions.");
+      setCameraState("READY");
+      // Pre-warm face models in background
+      void loadFaceModels().catch(() => null);
+    } catch (err: any) {
+      if (err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError") {
+        setCameraState("DENIED");
+      } else {
+        setCameraState("UNAVAILABLE");
+      }
     }
   }, []);
 
-  // Sync queued offline punches to server
-  const syncOfflineQueue = useCallback(async () => {
-    if (!navigator.onLine) return;
-    try {
-      const queued = localStorage.getItem("aura_pending_punches");
-      if (!queued) return;
+  // ── Auto-start camera on mount ─────────────────────────────
 
-      const queue: PendingPunch[] = JSON.parse(queued);
-      if (queue.length === 0) return;
-
-      const res = await fetch("/api/attendance/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(queue),
-      });
-
-      if (res.ok) {
-        localStorage.removeItem("aura_pending_punches");
-        setPendingCount(0);
-        toast.success(`Successfully synchronized ${queue.length} offline punches!`);
-      }
-    } catch (err) {
-      console.warn("Background sync failed", err);
-    }
-  }, []);
-
-  // Fetch Kiosk Profiles & settings from server (when online)
-  const syncFromServer = useCallback(async () => {
-    if (!navigator.onLine) return;
-
-    try {
-      const searchParams = new URLSearchParams(window.location.search);
-      const org = searchParams.get("org") || "aura-demo";
-      const orgId = searchParams.get("organizationId");
-
-      const url = new URL("/api/attendance/kiosk-sync", window.location.origin);
-      if (org) url.searchParams.set("org", org);
-      if (orgId) url.searchParams.set("organizationId", orgId);
-
-      const res = await fetch(url.toString());
-      if (!res.ok) throw new Error();
-
-      const resultData = await res.json();
-      if (resultData.success && resultData.data) {
-        const { config, sites: syncedSites, profiles, kioskToken } = resultData.data;
-
-        localStorage.setItem("aura_kiosk_config", JSON.stringify(config));
-        localStorage.setItem("aura_kiosk_sites", JSON.stringify(syncedSites));
-        localStorage.setItem("aura_kiosk_profiles", JSON.stringify(profiles));
-        if (kioskToken) {
-          localStorage.setItem("aura_kiosk_token", kioskToken);
-          setKioskToken(kioskToken);
-        }
-
-        setKioskConfig(config);
-        setSites(syncedSites);
-        setCachedProfiles(profiles);
-
-        // Run sync queue
-        void syncOfflineQueue();
-      }
-    } catch {
-      console.warn("Unable to fetch latest settings from server, using local cache");
-    }
-  }, [syncOfflineQueue]);
-
-  // Handle Online/Offline Status Changes
   useEffect(() => {
-    const handleOnline = () => {
-      setIsOnline(true);
-      void syncFromServer();
-    };
-    const handleOffline = () => {
-      setIsOnline(false);
-    };
+    void startCamera();
+    return () => stopCamera();
+  }, [startCamera, stopCamera]);
 
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
+  // ── Auto-tracking loop (face detection) ───────────────────
 
+  useEffect(() => {
+    if (mode !== "FACE" || cameraState !== "READY" || busy || result) {
+      autoTrackActiveRef.current = false;
+      return;
+    }
+
+    autoTrackActiveRef.current = true;
+    let cancelled = false;
+
+    async function tick() {
+      if (cancelled || !autoTrackActiveRef.current) return;
+      if (!videoRef.current) { setTimeout(tick, 500); return; }
+
+      try {
+        const faceapi = await loadFaceModels();
+        const detection = await faceapi.detectSingleFace(
+          videoRef.current,
+          new faceapi.SsdMobilenetv1Options({ minConfidence: 0.8 })
+        );
+
+        if (cancelled) return;
+
+        if (detection) {
+          if (!holdStartRef.current) {
+            holdStartRef.current = Date.now();
+            setCameraState("FACE_DETECTED");
+          } else if (Date.now() - holdStartRef.current >= 1200) {
+            // Trigger punch
+            autoTrackActiveRef.current = false;
+            setCameraState("VERIFYING");
+            void submitFacePunch();
+            return;
+          }
+        } else {
+          holdStartRef.current = null;
+          setCameraState("READY");
+        }
+      } catch {
+        // skip frame
+      }
+
+      if (!cancelled) setTimeout(tick, 400);
+    }
+
+    setTimeout(tick, 400);
+    return () => { cancelled = true; autoTrackActiveRef.current = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, cameraState, busy, result]);
+
+  // ── Auto-reset after success ──────────────────────────────
+
+  const scheduleReset = useCallback(() => {
+    if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+    resetTimerRef.current = setTimeout(() => {
+      setResult(null);
+      setMode("FACE");
+      setErrorCode("");
+      setErrorMsg("");
+      holdStartRef.current = null;
+      setCameraState("READY");
+    }, 4000);
+  }, []);
+
+  useEffect(() => {
+    if (result) scheduleReset();
     return () => {
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
+      if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
     };
-  }, [syncFromServer]);
+  }, [result, scheduleReset]);
 
-  // Main Punch Action Trigger
-  const submitPunch = useCallback(async () => {
+  // ── Punch helpers ─────────────────────────────────────────
+
+  const buildClientEventId = () => "evt_" + Date.now() + "_" + Math.random().toString(16).slice(2, 8);
+  const getKioskTokenFromUrl = () => new URLSearchParams(typeof window !== "undefined" ? window.location.search : "").get("kioskToken") ?? undefined;
+
+  const handlePunchResult = useCallback((res: any) => {
+    if (!res.success) {
+      const code = res.code ?? "DEFAULT";
+      setErrorCode(code);
+      setErrorMsg(ERROR_MESSAGES[code] ?? ERROR_MESSAGES.DEFAULT);
+      setMode("ERROR");
+      return;
+    }
+    const d = res.data;
+    setResult({
+      action: d.action === "CHECK_IN" ? "check_in" : d.action === "CHECK_OUT" ? "check_out" : "already_checked_out",
+      employee: d.employee,
+      site: d.site ?? { name: "—" },
+      faceScore: d.faceScore ?? 1,
+      distanceMeters: d.gpsDistanceMeters ?? null,
+      locationMatched: !d.flags?.includes("OUTSIDE_GEOFENCE"),
+      latitude: 0,
+      longitude: 0,
+    });
+    setMode("RESULT");
+  }, []);
+
+  const submitFacePunch = useCallback(async () => {
     setBusy(true);
-    setError("");
-    setResult(null);
-    setAutoCaptureStatus("");
+    holdStartRef.current = null;
 
     try {
       const photo = capturePhoto(videoRef.current, canvasRef.current);
-      if (!photo) throw new Error("The camera is not ready yet.");
+      if (!photo) throw new Error("Camera not ready.");
 
       let position: GeolocationPosition;
       try {
         position = await getFreshLocation();
       } catch {
-        throw new Error("Unable to read GPS location. Location is required.");
+        throw new Error("Location is required for attendance.");
+      }
+
+      // Offline path
+      if (!navigator.onLine) {
+        const localResult = processOfflinePunch(
+          await generateDescriptor(photo),
+          { latitude: position.coords.latitude, longitude: position.coords.longitude },
+          photo, cachedProfiles, sites, kioskConfig
+        );
+        setResult(localResult);
+        setMode("RESULT");
+        toast.info("Offline punch queued.");
+        return;
       }
 
       const descriptor = await generateDescriptor(photo);
 
-      // Offline path
-      if (!navigator.onLine) {
-        const localRes = processOfflinePunch(
-          descriptor,
-          { latitude: position.coords.latitude, longitude: position.coords.longitude },
-          photo,
-          cachedProfiles,
-          sites,
-          kioskConfig
-        );
-        setResult(localRes);
-        stopCamera();
-        const cachedRaw = localStorage.getItem("aura_pending_punches") || "[]";
-        const parsedQueue = JSON.parse(cachedRaw);
-        setPendingCount(parsedQueue.length);
-        toast.info("Offline punch saved locally. Will sync when online.");
-        return;
-      }
-
-      // Online path
-      const searchParams = new URLSearchParams(window.location.search);
-      const org = searchParams.get("org") || "aura-demo";
-      const orgId = searchParams.get("organizationId");
-
-      const storedKioskToken = localStorage.getItem("aura_kiosk_token") || kioskToken || undefined;
-      const clientEventId = `evt_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
-
-      const response = await fetch("/api/attendance/punch", {
+      const tok = kioskToken ?? getKioskTokenFromUrl();
+      const res = await fetch("/api/attendance/punch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          clientEventId,
+          clientEventId: buildClientEventId(),
           descriptor,
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
-          photoUrl: photo,
           browser: navigator.userAgent,
           deviceInfo: navigator.platform,
-          kioskToken: storedKioskToken,
+          capturedAt: new Date().toISOString(),
+          authMethod: "FACE",
+          faceMatchPassed: true,
+          kioskToken: tok ?? undefined,
         }),
       });
 
-      const resResult = await response.json();
-      if (!response.ok || !resResult.success) {
-        throw new Error(resResult.message || "Attendance could not be recorded.");
-      }
+      handlePunchResult(await res.json());
+    } catch (err: any) {
+      const msg = err.message === "NO_FACE"
+        ? "Face could not be verified. Try again or use PIN."
+        : err.message ?? "Verification failed. Try again.";
+      setErrorMsg(msg);
+      setMode("ERROR");
+    } finally {
+      setBusy(false);
+      setCameraState("READY");
+    }
+  }, [cachedProfiles, sites, kioskConfig, kioskToken, handlePunchResult]);
 
-      setResult(resResult.data);
-      stopCamera();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Attendance failed.");
-      if (!streamRef.current) {
-        void startCamera();
-      }
+  const submitPinPunch = useCallback(async (employeeCode: string, pin: string) => {
+    if (!navigator.onLine) {
+      setErrorMsg("PIN verification requires an internet connection.");
+      setMode("ERROR");
+      return;
+    }
+    setBusy(true);
+    try {
+      let position: GeolocationPosition;
+      try { position = await getFreshLocation(); }
+      catch { throw new Error("Location is required for attendance."); }
+
+      const tok = kioskToken ?? getKioskTokenFromUrl();
+      const res = await fetch("/api/attendance/punch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientEventId: buildClientEventId(),
+          employeeCode, pin,
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          browser: navigator.userAgent,
+          deviceInfo: navigator.platform,
+          capturedAt: new Date().toISOString(),
+          authMethod: "PIN",
+          kioskToken: tok ?? undefined,
+        }),
+      });
+      handlePunchResult(await res.json());
+    } catch (err: any) {
+      setErrorMsg(err.message ?? "Verification failed.");
+      setMode("ERROR");
     } finally {
       setBusy(false);
     }
-  }, [startCamera, stopCamera, cachedProfiles, sites, kioskConfig, kioskToken]);
+  }, [kioskToken, handlePunchResult]);
 
-  // Initialization
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void syncFromServer();
-    void requestLocation();
-    void startCamera();
+  // ── Switch to PIN ─────────────────────────────────────────
 
-    const clock = window.setInterval(() => setNow(new Date()), 1000);
-    // Background sync loop
-    const syncLoop = window.setInterval(() => void syncOfflineQueue(), 12000);
-
-    return () => {
-      window.clearInterval(clock);
-      window.clearInterval(syncLoop);
-      streamRef.current?.getTracks().forEach((track) => track.stop());
-    };
-  }, [requestLocation, startCamera, syncFromServer, syncOfflineQueue]);
-
-  // Find nearest site
-  const nearestSite = useMemo(() => {
-    if (!location || sites.length === 0) return null;
-    return sites
-      .map((site) => ({
-        ...site,
-        distance: haversineDistance(
-          location.latitude,
-          location.longitude,
-          site.latitude,
-          site.longitude
-        ),
-      }))
-      .sort((a, b) => a.distance - b.distance)[0];
-  }, [location, sites]);
-
-  const isInsideGeofence = Boolean(
-    nearestSite && nearestSite.distance <= nearestSite.radius
-  );
-
-  // Auto camera-tracking
-  useEffect(() => {
-    if (!streaming || busy || result) {
-      // Defer state update to avoid synchronous cascades in effect
-      Promise.resolve().then(() => setAutoCaptureStatus(""));
-      return;
-    }
-
-    let active = true;
-    let holdStart: number | null = null;
-
-    async function autoTrack() {
-      if (!active || !videoRef.current) return;
-      try {
-        const faceapi = await loadFaceModels();
-        const detection = await faceapi.detectSingleFace(
-          videoRef.current,
-          new faceapi.SsdMobilenetv1Options({ minConfidence: 0.85 })
-        );
-
-        if (detection) {
-          if (!holdStart) {
-            holdStart = Date.now();
-            setAutoCaptureStatus("Face found! Hold steady...");
-          } else {
-            const elapsed = Date.now() - holdStart;
-            if (elapsed >= 1500) {
-              active = false;
-              setAutoCaptureStatus("Verifying identity...");
-              void submitPunch();
-              return;
-            }
-          }
-        } else {
-          holdStart = null;
-          setAutoCaptureStatus("Position your face clearly in the camera");
-        }
-      } catch {
-        // Skip frame
-      }
-
-      if (active) {
-        setTimeout(autoTrack, 400);
-      }
-    }
-
-    void autoTrack();
-
-    return () => {
-      active = false;
-    };
-  }, [streaming, busy, result, submitPunch]);
-
-  // Reset Kiosk
-  function reset() {
+  const switchToPin = useCallback(() => {
     stopCamera();
+    setMode("PIN");
+    setErrorCode("");
+    setErrorMsg("");
+  }, [stopCamera]);
+
+  const switchToFace = useCallback(() => {
+    setMode("FACE");
+    setErrorCode("");
+    setErrorMsg("");
     setResult(null);
-    setError("");
-    void requestLocation();
     void startCamera();
-  }
+  }, [startCamera]);
 
-  // Walkthrough Guides trigger
-  function handleNextWalkthrough() {
-    if (walkthroughStep < 3) {
-      setWalkthroughStep((prev) => prev + 1);
-    } else {
-      setShowWalkthrough(false);
-      setWalkthroughStep(0);
-      toast.success("Walkthrough guide completed! Aura is ready for testing.");
+  // ── Retry after error ─────────────────────────────────────
+
+  const handleRetry = useCallback(() => {
+    if (mode === "ERROR") {
+      // If face-related error, offer switching; else return to face
+      setMode("FACE");
+      setErrorCode("");
+      setErrorMsg("");
+      setCameraState("READY");
     }
-  }
+  }, [mode]);
 
-  const actionLabel =
-    result?.action === "check_in"
-      ? "Check-in complete"
-      : result?.action === "check_out"
-      ? "Check-out complete"
-      : "Attendance already complete";
+  // ─────────────────────────────────────────────────────────────
+  // Render
+  // ─────────────────────────────────────────────────────────────
+
+  const siteName = kioskConfig?.name ?? "";
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-slate-950 text-slate-100 flex flex-col justify-between">
-      {/* Background gradients */}
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_15%,#1e3a8a_0%,transparent_32%),radial-gradient(circle_at_85%_75%,#311042_0%,transparent_30%)]" />
+    <div className="min-h-screen bg-black text-white flex flex-col" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
+      <canvas ref={canvasRef} className="hidden" aria-hidden="true" />
 
-      {/* Walkthrough Modal Overlay */}
-      {showWalkthrough && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3rem p-6 max-w-sm w-full shadow-2xl relative">
-            <div className="absolute -top-6 left-6 flex size-12 items-center justify-center rounded-2xl bg-blue-600 shadow-lg text-white">
-              <Sparkles className="size-6" />
-            </div>
-            <div className="mt-4 space-y-4">
-              <div className="flex justify-between items-center text-xs font-semibold text-slate-500 uppercase tracking-widest">
-                <span>Walkthrough Guide</span>
-                <span>{walkthroughStep + 1} / 4</span>
-              </div>
-
-              {walkthroughStep === 0 && (
-                <div>
-                  <h3 className="text-lg font-bold text-white">1. Verify Geolocation</h3>
-                  <p className="mt-2 text-slate-400 text-sm leading-6">
-                    Aura automatically checks if your device is located within the GPS boundary of an approved site. Ensure location services are allowed.
-                  </p>
-                </div>
-              )}
-
-              {walkthroughStep === 1 && (
-                <div>
-                  <h3 className="text-lg font-bold text-white">2. Stand Well-lit</h3>
-                  <p className="mt-2 text-slate-400 text-sm leading-6">
-                    Aura uses ambient light checking. Position your face in a bright environment. Avoid strong backlighting.
-                  </p>
-                </div>
-              )}
-
-              {walkthroughStep === 2 && (
-                <div>
-                  <h3 className="text-lg font-bold text-white">3. Face Alignment</h3>
-                  <p className="mt-2 text-slate-400 text-sm leading-6">
-                    Keep your face within the camera guideline frame. The AI scanner begins analysis automatically when a face is detected.
-                  </p>
-                </div>
-              )}
-
-              {walkthroughStep === 3 && (
-                <div>
-                  <h3 className="text-lg font-bold text-white">4. Hold Steady</h3>
-                  <p className="mt-2 text-slate-400 text-sm leading-6">
-                    Hold still for 1.5 seconds. Once verified, you will see a check-in success overlay.
-                  </p>
-                </div>
-              )}
-
-              <Button onClick={handleNextWalkthrough} className="w-full bg-blue-600 hover:bg-blue-700 h-11 rounded-2xl font-bold">
-                {walkthroughStep < 3 ? "Next Step" : "Get Started"}
-                <ArrowRight className="size-4 ml-2" />
-              </Button>
-            </div>
+      {/* ─── TOP BAR ─── */}
+      <header className="flex items-center justify-between px-6 py-4 border-b border-zinc-900">
+        <div className="flex items-center gap-2.5">
+          <div className="size-8 rounded-xl bg-blue-600 flex items-center justify-center flex-shrink-0">
+            <ScanFace className="size-4 text-white" />
           </div>
-        </div>
-      )}
-
-      {/* Header */}
-      <header className="relative z-10 mx-auto w-full max-w-7xl px-4 py-5 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex size-11 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-xl shadow-blue-600/30">
-            <ScanFace className="size-5" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-bold tracking-tight text-white">Aura Kiosk</span>
-              {isOnline ? (
-                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  <Wifi className="size-2.5 animate-pulse" /> Online
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                  <WifiOff className="size-2.5" /> Offline Mode
-                </span>
-              )}
-            </div>
-            <p className="text-[10px] font-medium text-slate-500">
-              {pendingCount > 0 ? `${pendingCount} punches in offline queue` : "Secure attendance node"}
-            </p>
-          </div>
+          <span className="font-bold text-sm tracking-tight">Aura</span>
         </div>
 
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            onClick={() => {
-              setWalkthroughStep(0);
-              setShowWalkthrough(true);
-            }}
-            className="flex items-center gap-2 rounded-full border border-slate-800 bg-slate-950/40 text-slate-400 hover:text-white"
-          >
-            <HelpCircle className="size-4" />
-            Walkthrough
-          </Button>
-          <Link
-            href="/login"
-            className="flex items-center gap-2 rounded-full border border-slate-800 bg-slate-950/40 px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white shadow-sm backdrop-blur transition"
-          >
-            <LockKeyhole className="size-3.5" />
-            Admin Portal
-          </Link>
+        <div className="flex items-center gap-4 text-xs text-zinc-500">
+          {siteName && <span className="font-medium text-zinc-300">{siteName}</span>}
+          {isOnline ? (
+            <span className="flex items-center gap-1 text-emerald-500"><Wifi className="size-3" /> Online</span>
+          ) : (
+            <span className="flex items-center gap-1 text-amber-500"><WifiOff className="size-3" /> Offline</span>
+          )}
+          <span className="tabular-nums text-zinc-400 hidden sm:block">{now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
         </div>
       </header>
 
-      {/* Main Grid */}
-      <div className="relative z-10 mx-auto w-full max-w-7xl px-4 flex-1 grid items-center gap-8 py-4 lg:grid-cols-[0.95fr_1.05fr] lg:gap-16">
-        {/* Left column info */}
-        <section className="order-2 lg:order-1 text-left">
-          <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-blue-950 bg-blue-500/10 px-3.5 py-1.5 text-xs font-semibold text-blue-400">
-            <ShieldCheck className="size-4 text-blue-500" />
-            Secure Biometric Attendance
-          </div>
-          <h1 className="max-w-xl text-4xl font-bold leading-[1.08] tracking-[-0.04em] sm:text-5xl lg:text-6xl text-white">
-            Instant check-in
-            <span className="text-blue-500 block mt-1">without the badges.</span>
-          </h1>
-          <p className="mt-5 max-w-lg text-sm leading-6 text-slate-400">
-            Mount any device on your wall as a smart terminal. Employees punch in using facial recognition, auto-detecting the geofenced site boundary.
-          </p>
+      {/* ─── MAIN AREA ─── */}
+      <main className="flex-1 flex flex-col items-center justify-center px-4 py-8 gap-8">
 
-          <div className="mt-8 grid max-w-lg gap-3 sm:grid-cols-3">
-            <div className="rounded-2xl border border-slate-900 bg-slate-950/30 p-4 backdrop-blur shadow-sm">
-              <ScanFace className="mb-2 size-5 text-blue-500" />
-              <p className="text-xs font-bold text-slate-200">Face Recognition</p>
-              <p className="mt-1 text-[10px] text-slate-500">Biometric identity match</p>
-            </div>
-            <div className="rounded-2xl border border-slate-900 bg-slate-950/30 p-4 backdrop-blur shadow-sm">
-              <LocateFixed className="mb-2 size-5 text-blue-500" />
-              <p className="text-xs font-bold text-slate-200">GPS Auto-Match</p>
-              <p className="mt-1 text-[10px] text-slate-500">Inside geofence zones</p>
-            </div>
-            <div className="rounded-2xl border border-slate-900 bg-slate-950/30 p-4 backdrop-blur shadow-sm">
-              <Wifi className="mb-2 size-5 text-blue-500" />
-              <p className="text-xs font-bold text-slate-200">Offline Caching</p>
-              <p className="mt-1 text-[10px] text-slate-500">Zero downtime support</p>
-            </div>
-          </div>
-        </section>
+        {/* ── RESULT SCREEN ── */}
+        {mode === "RESULT" && result && (
+          <ResultScreen result={result} onContinue={switchToFace} />
+        )}
 
-        {/* Right column camera card */}
-        <section className="order-1 lg:order-2">
-          <div className="mx-auto w-full max-w-xl overflow-hidden rounded-[2.5rem] border border-slate-900 bg-slate-900/60 shadow-2xl shadow-black/40 backdrop-blur-xl">
-            {/* Card Header info */}
-            <div className="flex items-center justify-between border-b border-slate-900 px-5 py-4">
-              <div>
-                <p className="text-sm font-bold text-white">Punch Scanner</p>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  {now.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
-                </p>
-              </div>
-              <div className="flex items-center gap-2 rounded-full bg-slate-950 border border-slate-800 px-3.5 py-1.5 font-mono text-xs font-bold text-slate-300">
-                <Clock3 className="size-3.5 text-blue-500" />
-                {now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-              </div>
-            </div>
+        {/* ── ERROR SCREEN ── */}
+        {mode === "ERROR" && (
+          <ErrorScreen
+            message={errorMsg}
+            code={errorCode}
+            onRetry={handleRetry}
+            onPin={switchToPin}
+            showPinOption={errorCode !== "OUTSIDE_GEOFENCE" && errorCode !== "DUPLICATE_PUNCH"}
+          />
+        )}
 
-            {/* Video container */}
-            <div className="p-4 sm:p-5">
-              <canvas ref={canvasRef} className="hidden" />
-              <div className="relative aspect-[4/3] overflow-hidden rounded-3xl bg-slate-950 border border-slate-900">
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  muted
-                  playsInline
-                  className={`h-full w-full scale-x-[-1] object-cover transition-opacity duration-300 ${streaming ? "opacity-100" : "opacity-0"}`}
-                />
+        {/* ── PIN MODE ── */}
+        {mode === "PIN" && (
+          <PinScreen
+            busy={busy}
+            isOnline={isOnline}
+            onSubmit={submitPinPunch}
+            onBack={switchToFace}
+          />
+        )}
 
-                {!streaming && !result && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-[radial-gradient(circle_at_center,#0f172a_0%,#020617_80%)] text-center">
-                    <div className="relative mb-5">
-                      <div className="absolute inset-0 animate-ping rounded-full bg-blue-500/20" />
-                      <div className="relative flex size-16 items-center justify-center rounded-full border border-blue-400/30 bg-blue-500/10 text-blue-400">
-                        <Camera className="size-7 animate-pulse" />
-                      </div>
-                    </div>
-                    <p className="text-sm font-bold text-white">Initializing scanner camera...</p>
-                    <p className="mt-1.5 max-w-xs text-[11px] leading-5 text-slate-500">
-                      Grant browser access to your device camera to proceed.
-                    </p>
-                  </div>
-                )}
+        {/* ── FACE MODE ── */}
+        {mode === "FACE" && (
+          <FaceScreen
+            videoRef={videoRef}
+            cameraState={cameraState}
+            busy={busy}
+            isOnline={isOnline}
+            pendingCount={pendingCount}
+            onSwitchToPin={switchToPin}
+            onStartCamera={startCamera}
+          />
+        )}
+      </main>
 
-                {streaming && (
-                  <>
-                    {/* Centered Guide Circle */}
-                    <div
-                      className="pointer-events-none absolute inset-[12%_22%] rounded-[42%] border-2 border-dashed border-white/40 shadow-[0_0_0_999px_rgba(2,6,23,0.3)] transition-all duration-300 data-[highlight=true]:border-emerald-400 data-[highlight=true]:scale-105"
-                      data-highlight={autoCaptureStatus.includes("Hold") || autoCaptureStatus.includes("Verifying")}
-                    />
-                    {/* Auto Capture Status Overlay */}
-                    <div className="absolute left-4 top-4 flex items-center gap-2 rounded-full bg-slate-950/80 border border-slate-800 px-3 py-1.5 text-[10px] font-bold text-white backdrop-blur">
-                      <span className={`size-1.5 animate-pulse rounded-full ${autoCaptureStatus.includes("Hold") ? "bg-emerald-400" : "bg-blue-400"}`} />
-                      {autoCaptureStatus || "Camera ready"}
-                    </div>
-                    {autoCaptureStatus.includes("Hold") && (
-                      <div className="absolute inset-x-0 bottom-8 flex justify-center animate-bounce">
-                        <span className="rounded-full bg-slate-950/85 border border-slate-800 px-4 py-2 text-xs font-bold text-emerald-400 shadow-xl backdrop-blur-md">
-                          {autoCaptureStatus}
-                        </span>
-                      </div>
-                    )}
-                  </>
-                )}
-
-                {/* Successful punch result overlays */}
-                {result && (
-                  <div
-                    className={`absolute inset-0 flex flex-col items-center justify-center px-6 text-center text-white transition-opacity duration-300 ${
-                      result.action === "check_in"
-                        ? "bg-gradient-to-br from-emerald-950 via-slate-950 to-slate-950"
-                        : result.action === "check_out"
-                        ? "bg-gradient-to-br from-blue-950 via-slate-950 to-slate-950"
-                        : "bg-gradient-to-br from-amber-950 via-slate-950 to-slate-950"
-                    }`}
-                  >
-                    <div
-                      className={`mb-4 flex size-20 items-center justify-center rounded-3xl text-slate-950 shadow-xl ${
-                        result.action === "check_in"
-                          ? "bg-emerald-400 shadow-emerald-500/20"
-                          : result.action === "check_out"
-                          ? "bg-blue-400 shadow-blue-500/20"
-                          : "bg-amber-400 shadow-amber-500/20"
-                      }`}
-                    >
-                      <Check className="size-10 stroke-[3]" />
-                    </div>
-                    <p className="text-2xl font-bold tracking-tight text-white">{actionLabel}</p>
-                    <p className="mt-3 text-lg font-semibold text-slate-300">
-                      {result.employee.name}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-500 font-mono">
-                      ID: {result.employee.employeeCode} · {result.site.name}
-                    </p>
-                    <p className="mt-6 text-[10px] text-slate-600 border border-slate-900 rounded-full px-3 py-1 bg-slate-950/60">
-                      Face Quality Match: {(result.faceScore * 100).toFixed(1)}% ·{" "}
-                      {result.locationMatched && result.distanceMeters != null
-                        ? `${Math.round(result.distanceMeters)}m from boundary`
-                        : `GPS: ${result.latitude.toFixed(5)}, ${result.longitude.toFixed(5)}`}
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {/* Status and Diagnostics */}
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <StatusCard
-                  active={isInsideGeofence}
-                  loading={locationBusy}
-                  title={locationBusy ? "Reading GPS…" : isInsideGeofence ? "Valid workplace zone" : "Outside approved zone"}
-                  detail={nearestSite ? `${nearestSite.name} · ${Math.round(nearestSite.distance)}m away` : "GPS matching active"}
-                />
-                <div className="rounded-2xl border border-slate-900 bg-slate-950/30 p-3.5 flex items-start gap-3 shadow-sm">
-                  <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-slate-950 border border-slate-800 text-slate-400">
-                    <Building2 className="size-4" />
-                  </div>
-                  <div>
-                    <p className="text-xs font-bold text-slate-200">Device Verification</p>
-                    <p className="mt-1 text-[10px] text-slate-500 leading-4">
-                      Instant matching using local device GPU descriptors.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {error && (
-                <div className="mt-4 flex items-start gap-3 rounded-2xl border border-red-950 bg-red-950/10 px-4 py-3.5 text-xs text-red-400">
-                  <TriangleAlert className="mt-0.5 size-4 shrink-0 text-red-500" />
-                  <span className="leading-5">{error}</span>
-                </div>
-              )}
-
-              {/* Controls */}
-              <div className="mt-5 flex gap-3">
-                {result ? (
-                  <Button onClick={reset} className="h-12 w-full rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold">
-                    <RefreshCw className="size-4 mr-2" />
-                    Scan Next Person
-                  </Button>
-                ) : !streaming ? (
-                  <Button onClick={startCamera} className="h-12 w-full rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-lg shadow-blue-600/20">
-                    <Camera className="size-4 mr-2" />
-                    Activate Scanner
-                    <ArrowRight className="ml-auto size-4" />
-                  </Button>
-                ) : (
-                  <>
-                    <Button
-                      variant="outline"
-                      onClick={stopCamera}
-                      disabled={busy}
-                      className="h-12 flex-1 rounded-2xl border-slate-800 bg-transparent text-slate-400 hover:text-white"
-                    >
-                      Pause Scanner
-                    </Button>
-                    <div className="flex items-center justify-center px-4">
-                      {busy && <LoaderCircle className="size-6 animate-spin text-blue-500" />}
-                    </div>
-                  </>
-                )}
-              </div>
-
-              {!locationBusy && !location && (
-                <button
-                  onClick={() => void requestLocation()}
-                  className="mt-4 flex w-full items-center justify-center gap-2 text-xs font-semibold text-blue-500 hover:text-blue-400"
-                >
-                  <LocateFixed className="size-3.5 animate-pulse" />
-                  Retry Location Reading
-                </button>
-              )}
-            </div>
-          </div>
-        </section>
-      </div>
-
-      {/* Footer */}
-      <footer className="relative z-10 flex items-center justify-center gap-2 pb-5 text-[10px] text-slate-600 uppercase tracking-widest mt-4">
-        <ShieldCheck className="size-4 text-slate-500" />
-        Local device encrypted verification · Zero logs stored on public cookies
+      {/* ─── FOOTER ─── */}
+      <footer className="px-6 py-3 border-t border-zinc-900 flex items-center justify-center">
+        <p className="text-[10px] text-zinc-700 uppercase tracking-widest">Secure Attendance</p>
       </footer>
-    </main>
+    </div>
   );
 }
 
-function StatusCard({
-  active,
-  loading,
-  title,
-  detail,
+// ─────────────────────────────────────────
+// Sub-screens
+// ─────────────────────────────────────────
+
+function FaceScreen({
+  videoRef, cameraState, busy, isOnline, pendingCount, onSwitchToPin, onStartCamera
 }: {
-  active: boolean;
-  loading: boolean;
-  title: string;
-  detail: string;
+  videoRef: React.RefObject<HTMLVideoElement | null>;
+  cameraState: CameraState;
+  busy: boolean;
+  isOnline: boolean;
+  pendingCount: number;
+  onSwitchToPin: () => void;
+  onStartCamera: () => void;
+}) {
+  const isLive = cameraState === "READY" || cameraState === "FACE_DETECTED";
+
+  const statusText = (() => {
+    if (busy || cameraState === "VERIFYING") return "Verifying...";
+    if (cameraState === "STARTING") return "Starting camera...";
+    if (cameraState === "DENIED") return "Camera access is required for Face Attendance.";
+    if (cameraState === "UNAVAILABLE") return "Camera unavailable";
+    if (cameraState === "FACE_DETECTED") return "Hold steady...";
+    return "Look at the camera";
+  })();
+
+  return (
+    <div className="w-full max-w-md flex flex-col items-center gap-6">
+      {/* Greeting */}
+      <p className="text-lg font-semibold text-zinc-400">Good morning 👋</p>
+
+      {/* Camera Box */}
+      <div className="w-full relative">
+        <div
+          className={`relative w-full aspect-[4/3] rounded-3xl overflow-hidden border-2 transition-colors duration-300 ${
+            cameraState === "FACE_DETECTED"
+              ? "border-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.15)]"
+              : "border-zinc-800"
+          }`}
+          style={{ background: "#0a0a0a" }}
+        >
+          {/* Video element (always rendered for ref) */}
+          <video
+            ref={videoRef}
+            autoPlay muted playsInline
+            className={`absolute inset-0 w-full h-full object-cover scale-x-[-1] transition-opacity duration-500 ${isLive && !busy ? "opacity-100" : "opacity-0"}`}
+            aria-label="Camera view"
+          />
+
+          {/* Overlay states */}
+          {(cameraState === "STARTING") && (
+            <CameraOverlay icon={<SpinnerIcon />} text="Starting camera..." />
+          )}
+
+          {(busy || cameraState === "VERIFYING") && (
+            <CameraOverlay icon={<SpinnerIcon />} text="Verifying..." solid />
+          )}
+
+          {cameraState === "DENIED" && (
+            <CameraOverlay
+              icon={<span className="text-3xl">🔒</span>}
+              text="Camera access is required for Face Attendance."
+            />
+          )}
+
+          {cameraState === "UNAVAILABLE" && (
+            <CameraOverlay
+              icon={<Camera className="size-8 text-zinc-500" />}
+              text="Camera unavailable"
+            >
+              <button
+                onClick={onStartCamera}
+                className="mt-4 px-5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-sm font-semibold transition-colors"
+              >
+                Try Again
+              </button>
+            </CameraOverlay>
+          )}
+
+          {/* Face guide circle */}
+          {isLive && !busy && (
+            <div
+              className={`pointer-events-none absolute inset-[8%_14%] rounded-[50%] border-2 transition-all duration-300 ${
+                cameraState === "FACE_DETECTED"
+                  ? "border-emerald-400 scale-105"
+                  : "border-white/20 border-dashed"
+              }`}
+              aria-hidden="true"
+            />
+          )}
+        </div>
+      </div>
+
+      {/* Status message */}
+      <p className={`text-base font-medium transition-colors ${busy || cameraState === "VERIFYING" ? "text-blue-400 animate-pulse" : cameraState === "FACE_DETECTED" ? "text-emerald-400" : "text-zinc-400"}`}>
+        {statusText}
+      </p>
+
+      {/* Camera actions for error states */}
+      {cameraState === "DENIED" && (
+        <button
+          onClick={() => window.location.reload()}
+          className="px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-sm font-bold transition-colors"
+        >
+          Allow Camera
+        </button>
+      )}
+
+      {/* PIN fallback link */}
+      {(cameraState !== "DENIED") && (
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-zinc-600">Can't use Face?</span>
+          <button
+            onClick={onSwitchToPin}
+            className="text-sm font-semibold text-blue-500 hover:text-blue-400 transition-colors underline-offset-2 hover:underline"
+          >
+            Use PIN
+          </button>
+        </div>
+      )}
+
+      {/* Offline / pending notice */}
+      {!isOnline && pendingCount > 0 && (
+        <p className="text-xs text-amber-500 font-medium">{pendingCount} offline {pendingCount === 1 ? "punch" : "punches"} queued</p>
+      )}
+    </div>
+  );
+}
+
+function PinScreen({
+  busy, isOnline, onSubmit, onBack
+}: {
+  busy: boolean;
+  isOnline: boolean;
+  onSubmit: (code: string, pin: string) => void;
+  onBack: () => void;
+}) {
+  const [step, setStep] = useState<"CODE" | "PIN">("CODE");
+  const [employeeCode, setEmployeeCode] = useState("");
+  const [pin, setPin] = useState("");
+  const MAX_PIN = 8;
+
+  const press = (digit: string) => {
+    if (step === "CODE") setEmployeeCode((p) => p + digit);
+    else if (step === "PIN" && pin.length < MAX_PIN) setPin((p) => p + digit);
+  };
+
+  const backspace = () => {
+    if (step === "CODE") setEmployeeCode((p) => p.slice(0, -1));
+    else setPin((p) => p.slice(0, -1));
+  };
+
+  const next = () => {
+    if (step === "CODE" && employeeCode.trim()) setStep("PIN");
+    else if (step === "PIN" && pin) onSubmit(employeeCode.trim(), pin);
+  };
+
+  return (
+    <div className="w-full max-w-sm flex flex-col items-center gap-6">
+      {/* Back button */}
+      <button onClick={onBack} className="self-start flex items-center gap-1.5 text-sm text-zinc-500 hover:text-zinc-300 transition-colors">
+        <ChevronLeft className="size-4" /> Back to Face Scan
+      </button>
+
+      {/* Title */}
+      <div className="text-center">
+        <h2 className="text-xl font-bold text-white">{step === "CODE" ? "Employee ID" : "Enter PIN"}</h2>
+        {step === "PIN" && (
+          <p className="text-sm text-zinc-500 mt-1">
+            ID: <span className="font-mono text-zinc-300">{employeeCode}</span>
+            <button onClick={() => { setStep("CODE"); setPin(""); }} className="ml-2 text-xs text-blue-500 hover:text-blue-400">change</button>
+          </p>
+        )}
+      </div>
+
+      {/* Display */}
+      <div className="w-full rounded-2xl border border-zinc-800 bg-zinc-950 h-16 flex items-center justify-center px-5">
+        {step === "CODE" ? (
+          <span className={`text-2xl font-mono tracking-widest ${employeeCode ? "text-white" : "text-zinc-700"}`}>
+            {employeeCode || "—"}
+          </span>
+        ) : (
+          <span className="text-3xl tracking-[0.6em] text-white">
+            {pin ? "•".repeat(pin.length) : <span className="text-zinc-700 text-base tracking-normal">PIN</span>}
+          </span>
+        )}
+      </div>
+
+      {/* Numpad */}
+      <div className="grid grid-cols-3 gap-3 w-full">
+        {["1","2","3","4","5","6","7","8","9"].map((d) => (
+          <PadButton key={d} label={d} onPress={() => press(d)} disabled={busy} />
+        ))}
+        <PadButton label="⌫" onPress={backspace} disabled={busy} variant="secondary" />
+        <PadButton label="0" onPress={() => press("0")} disabled={busy} />
+        <PadButton
+          label={busy ? "…" : step === "CODE" ? "Next" : "✓"}
+          onPress={next}
+          disabled={busy || (step === "CODE" && !employeeCode) || (step === "PIN" && !pin)}
+          variant="primary"
+        />
+      </div>
+
+      {/* Offline notice */}
+      {!isOnline && (
+        <p className="text-xs text-amber-500 text-center">
+          PIN verification requires an internet connection.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function ResultScreen({ result, onContinue }: { result: PunchResult; onContinue: () => void }) {
+  const isIn = result.action === "check_in";
+  const isOut = result.action === "check_out";
+  const isRepeat = result.action === "already_checked_out";
+
+  const label = isIn ? "Checked In" : isOut ? "Checked Out" : "Already Recorded";
+  const color = isIn ? "#10b981" : isOut ? "#3b82f6" : "#f59e0b";
+
+  return (
+    <div className="flex flex-col items-center gap-6 text-center animate-in fade-in zoom-in-95 duration-300">
+      {/* Big check */}
+      <div
+        className="size-24 rounded-full flex items-center justify-center"
+        style={{ background: color + "20", border: `2px solid ${color}40` }}
+      >
+        <span className="text-5xl" style={{ color }}>✓</span>
+      </div>
+
+      {/* Action label */}
+      <h1 className="text-4xl font-black tracking-tight" style={{ color }}>{label}</h1>
+
+      {/* Employee */}
+      <div>
+        <p className="text-2xl font-bold text-white">{result.employee.name}</p>
+        <p className="text-sm text-zinc-500 mt-1">{result.site.name}</p>
+        <p className="text-sm text-zinc-400 mt-0.5 tabular-nums">{new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
+      </div>
+
+      {/* Continue */}
+      <button
+        onClick={onContinue}
+        className="mt-4 px-8 py-3 rounded-2xl bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-sm font-semibold text-zinc-300 transition-colors"
+      >
+        Tap to continue
+      </button>
+
+      <p className="text-xs text-zinc-700">Returning automatically in a few seconds…</p>
+    </div>
+  );
+}
+
+function ErrorScreen({
+  message, code, onRetry, onPin, showPinOption
+}: {
+  message: string; code: string;
+  onRetry: () => void; onPin: () => void;
+  showPinOption: boolean;
 }) {
   return (
-    <div
-      className={`rounded-2xl border p-3.5 flex items-start gap-3 shadow-sm transition-colors ${
-        active
-          ? "border-emerald-950 bg-emerald-950/15"
-          : "border-slate-900 bg-slate-950/30"
-      }`}
-    >
-      <div
-        className={`mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg ${
-          active ? "bg-emerald-500/10 text-emerald-400" : "bg-slate-950 border border-slate-800 text-slate-500"
-        }`}
-      >
-        {loading ? <LoaderCircle className="size-4 animate-spin text-blue-500" /> : <MapPin className="size-4" />}
+    <div className="flex flex-col items-center gap-6 text-center max-w-sm">
+      <div className="size-20 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center">
+        <span className="text-4xl">⚠</span>
       </div>
-      <div className="min-w-0">
-        <p className={`text-xs font-bold ${active ? "text-emerald-400" : "text-slate-300"}`}>{title}</p>
-        <p className="mt-1 truncate text-[10px] text-slate-500 leading-4">{detail}</p>
+
+      <p className="text-lg font-semibold text-white leading-snug">{message}</p>
+
+      <div className="flex flex-col gap-3 w-full">
+        <button
+          onClick={onRetry}
+          className="w-full py-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 font-semibold text-sm transition-colors flex items-center justify-center gap-2"
+        >
+          <RefreshCw className="size-4" /> Try Again
+        </button>
+
+        {showPinOption && (
+          <button
+            onClick={onPin}
+            className="w-full py-3.5 rounded-2xl bg-blue-600 hover:bg-blue-700 font-semibold text-sm text-white transition-colors"
+          >
+            Use PIN Instead
+          </button>
+        )}
       </div>
     </div>
+  );
+}
+
+// ─────────────────────────────────────────
+// Primitives
+// ─────────────────────────────────────────
+
+function CameraOverlay({ icon, text, children, solid }: {
+  icon: React.ReactNode; text: string; children?: React.ReactNode; solid?: boolean;
+}) {
+  return (
+    <div className={`absolute inset-0 flex flex-col items-center justify-center px-6 text-center ${solid ? "bg-black/80" : "bg-black/60"}`}>
+      <div className="mb-3">{icon}</div>
+      <p className="text-sm font-medium text-zinc-300 leading-snug max-w-[220px]">{text}</p>
+      {children}
+    </div>
+  );
+}
+
+function SpinnerIcon() {
+  return (
+    <div className="size-10 rounded-full border-2 border-zinc-700 border-t-blue-500 animate-spin" />
+  );
+}
+
+function PadButton({
+  label, onPress, disabled, variant = "default"
+}: {
+  label: string; onPress: () => void; disabled?: boolean;
+  variant?: "default" | "secondary" | "primary";
+}) {
+  const base = "h-14 rounded-2xl text-lg font-bold transition-all active:scale-95 disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500";
+  const styles = {
+    default: "bg-zinc-900 border border-zinc-800 text-white hover:bg-zinc-800",
+    secondary: "bg-zinc-900 border border-zinc-800 text-zinc-400 hover:bg-zinc-800 hover:text-rose-400",
+    primary: "bg-blue-600 hover:bg-blue-500 text-white border border-blue-500 shadow-lg shadow-blue-900/30",
+  };
+  return (
+    <button className={`${base} ${styles[variant]}`} onClick={onPress} disabled={disabled} aria-label={label}>
+      {label}
+    </button>
   );
 }
