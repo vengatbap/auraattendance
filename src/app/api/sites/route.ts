@@ -1,4 +1,4 @@
-import { getSession } from "@/lib/auth";
+import { getSession, getTenantId } from "@/lib/auth";
 import { siteService } from "@/modules/sites/service/site.service";
 import { logger } from "@/lib/logger";
 import { db } from "@/db";
@@ -13,9 +13,9 @@ export async function GET(req: Request) {
       const session = await getSession();
       const { searchParams } = new URL(req.url);
       const orgSlug = searchParams.get("org");
-      const orgId = searchParams.get("organizationId");
+      const paramOrgId = searchParams.get("organizationId");
 
-      let organizationId = session?.organizationId ?? null;
+      let organizationId = getTenantId(session);
 
       // Allow public request (e.g. from kiosk) ONLY if a valid organization slug/id context is provided
       if (!organizationId) {
@@ -28,8 +28,8 @@ export async function GET(req: Request) {
           if (org) {
             organizationId = org.id;
           }
-        } else if (orgId) {
-          organizationId = orgId;
+        } else if (paramOrgId) {
+          organizationId = paramOrgId;
         }
       }
 
@@ -72,7 +72,8 @@ export async function POST(req: Request) {
   return logger.track("POST /api/sites", async () => {
     try {
       const session = await getSession();
-      if (!session || !session.organizationId) {
+      const orgId = getTenantId(session);
+      if (!session || !orgId) {
         return createApiResponse({
           success: false,
           message: "Unauthorized",
@@ -89,7 +90,7 @@ export async function POST(req: Request) {
       }
 
       const body = await req.json();
-      const site = await siteService.create(session.organizationId, body, session.userId);
+      const site = await siteService.create(orgId, body, session.userId);
 
       return createApiResponse({
         success: true,

@@ -4,24 +4,15 @@ import { db } from "@/db";
 import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { AppShell } from "@/components/layout/app-shell";
-import {
-  LayoutDashboard,
-  Building2,
-  Users,
-  CreditCard,
-  ToggleLeft,
-  Database,
-  ClipboardList,
-} from "lucide-react";
 
 const adminNavItems = [
-  { label: "Overview", href: "/admin/dashboard", icon: LayoutDashboard },
-  { label: "Tenants", href: "/admin/tenants", icon: Building2 },
-  { label: "Users", href: "/admin/users", icon: Users },
-  { label: "Products", href: "/admin/products", icon: CreditCard },
-  { label: "Feature Flags", href: "/admin/features", icon: ToggleLeft },
-  { label: "System Status", href: "/admin/system", icon: Database },
-  { label: "Audit Logs", href: "/admin/audit", icon: ClipboardList },
+  { label: "Overview", href: "/admin/dashboard", icon: "LayoutDashboard" },
+  { label: "Tenants", href: "/admin/tenants", icon: "Building2" },
+  { label: "Users", href: "/admin/users", icon: "Users" },
+  { label: "Products", href: "/admin/products", icon: "CreditCard" },
+  { label: "Feature Flags", href: "/admin/features", icon: "ToggleLeft" },
+  { label: "System Status", href: "/admin/system", icon: "Database" },
+  { label: "Audit Logs", href: "/admin/audit", icon: "ClipboardList" },
 ];
 
 export default async function AdminLayout({ children }: { children: ReactNode }) {

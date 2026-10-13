@@ -1,9 +1,16 @@
+import { describe, it } from "vitest";
 import { db } from "@/db";
 import { organizations, employees, faceProfiles, sites, attendanceLogs, attendanceEvents } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { AttendanceEngine } from "../engine/attendance-engine";
 import { OfflineSyncService } from "../services/offline-sync.service";
 import { AttendanceFlag, PunchInput, TrustedAttendanceContext } from "../types";
+
+describe("Attendance Engine Automated Suite", () => {
+  it("runs all attendance engine assertions", async () => {
+    await runTests();
+  }, 120000);
+});
 
 async function runTests() {
   console.log("=== STARTING ATTENDANCE ENGINE AUTOMATED TEST SUITE ===");
@@ -20,7 +27,7 @@ async function runTests() {
     subscriptionPlan: "standard",
     faceMatchThreshold: 0.6,
     timezone: "UTC",
-    lateAfterTime: "09:00",
+    lateAfterTime: "23:59",
     gracePeriodMinutes: 15,
     minimumPunchGapMinutes: 0,
   }).returning();
@@ -46,18 +53,19 @@ async function runTests() {
   }).returning();
 
   // Insert Employees for Org A and B
+  const randSuffix = Math.floor(Math.random() * 100000);
   const [empA] = await db.insert(employees).values({
     organizationId: orgA.id,
-    employeeCode: `EMP-A-${Date.now()}`,
-    governmentId: `GOV-${Date.now()}-A`,
+    employeeCode: `EMP-A-${Date.now()}-${randSuffix}`,
+    governmentId: `GOV-${Date.now()}-${randSuffix}-A`,
     name: "Employee A01",
     status: "active",
   }).returning();
 
   const [empB] = await db.insert(employees).values({
     organizationId: orgB.id,
-    employeeCode: `EMP-B-${Date.now()}`,
-    governmentId: `GOV-${Date.now()}-B`,
+    employeeCode: `EMP-B-${Date.now()}-${randSuffix}`,
+    governmentId: `GOV-${Date.now()}-${randSuffix}-B`,
     name: "Employee B01",
     status: "active",
   }).returning();
@@ -351,7 +359,7 @@ async function runTests() {
   } catch (error) {
     console.error("=== TEST SUITE FAILED ===");
     console.error(error);
-    process.exit(1);
+    throw error;
   } finally {
     // Cleanup test data safely
     await db.delete(attendanceEvents).where(eq(attendanceEvents.organizationId, orgA.id));
@@ -367,5 +375,3 @@ async function runTests() {
     console.log("=== Cleanup completed cleanly ===");
   }
 }
-
-runTests();

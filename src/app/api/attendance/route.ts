@@ -2,14 +2,15 @@ import { NextRequest } from "next/server";
 import { db } from "@/db";
 import { attendanceLogs, employees, sites } from "@/db/schema";
 import { and, desc, eq, ilike, or, gte, lte } from "drizzle-orm";
-import { getSession } from "@/lib/auth";
+import { getSession, getTenantId } from "@/lib/auth";
 import { PermissionService } from "@/lib/rbac";
 import { createApiResponse } from "@/lib/api-response";
 
 export async function GET(req: NextRequest) {
   try {
     const session = await getSession();
-    if (!session || !session.organizationId) {
+    const orgId = getTenantId(session);
+    if (!session || !orgId) {
       return createApiResponse({
         success: false,
         message: "Unauthorized",
@@ -34,7 +35,7 @@ export async function GET(req: NextRequest) {
     const search = req.nextUrl.searchParams.get("search");
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const conditions: any[] = [eq(attendanceLogs.organizationId, session.organizationId)];
+    const conditions: any[] = [eq(attendanceLogs.organizationId, orgId)];
     if (date) conditions.push(eq(attendanceLogs.date, date));
     if (startDate) conditions.push(gte(attendanceLogs.date, startDate));
     if (endDate) conditions.push(lte(attendanceLogs.date, endDate));

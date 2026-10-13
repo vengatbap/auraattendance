@@ -6,28 +6,17 @@ import { eq } from "drizzle-orm";
 import { AppShell } from "@/components/layout/app-shell";
 import { OperationsService } from "@/modules/operations/service/operations.service";
 import { PermissionService } from "@/lib/rbac";
-import {
-  LayoutDashboard,
-  Users2,
-  MapPin,
-  Clock,
-  FileText,
-  Settings,
-  Calendar,
-  AlertCircle,
-  CreditCard,
-} from "lucide-react";
 
 const navItems = [
-  { label: "Overview", href: "/dashboard", icon: LayoutDashboard, permission: "attendance.read" as const },
-  { label: "Attendance", href: "/dashboard/attendance", icon: Clock, permission: "attendance.read" as const },
-  { label: "Employees", href: "/dashboard/employees", icon: Users2, permission: "employee.read" as const },
-  { label: "Sites", href: "/dashboard/sites", icon: MapPin, permission: "site.read" as const },
-  { label: "Operations", href: "/dashboard/operations", icon: AlertCircle, permission: "attendance.update" as const, hasBadge: true },
-  { label: "Leave", href: "/dashboard/leave", icon: Calendar, permission: "leave.read" as const },
-  { label: "Payroll", href: "/dashboard/payroll", icon: CreditCard, permission: "payroll.read" as const },
-  { label: "Reports", href: "/dashboard/reports", icon: FileText, permission: "report.read" as const },
-  { label: "Settings", href: "/dashboard/settings", icon: Settings, permission: "settings.read" as const },
+  { label: "Overview", href: "/dashboard", icon: "LayoutDashboard", permission: "attendance.read" as const },
+  { label: "Attendance", href: "/dashboard/attendance", icon: "Clock", permission: "attendance.read" as const },
+  { label: "Employees", href: "/dashboard/employees", icon: "Users2", permission: "employee.read" as const },
+  { label: "Sites", href: "/dashboard/sites", icon: "MapPin", permission: "site.read" as const },
+  { label: "Operations", href: "/dashboard/operations", icon: "AlertCircle", permission: "attendance.update" as const, hasBadge: true },
+  { label: "Leave", href: "/dashboard/leave", icon: "Calendar", permission: "leave.read" as const },
+  { label: "Payroll", href: "/dashboard/payroll", icon: "CreditCard", permission: "payroll.read" as const },
+  { label: "Reports", href: "/dashboard/reports", icon: "FileText", permission: "report.read" as const },
+  { label: "Settings", href: "/dashboard/settings", icon: "Settings", permission: "settings.read" as const },
 ];
 
 export default async function DashboardLayout({ children }: { children: ReactNode }) {

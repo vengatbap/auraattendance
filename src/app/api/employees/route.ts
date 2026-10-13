@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, getTenantId } from "@/lib/auth";
 import { employeeService } from "@/modules/employees/service/employee.service";
 import { logger } from "@/lib/logger";
 import { PermissionService } from "@/lib/rbac";
@@ -9,7 +9,8 @@ export async function GET() {
   return logger.track("GET /api/employees", async () => {
     try {
       const session = await getSession();
-      if (!session || !session.organizationId) {
+      const orgId = getTenantId(session);
+      if (!session || !orgId) {
         return createApiResponse({
           success: false,
           message: "Unauthorized",
@@ -25,7 +26,7 @@ export async function GET() {
         });
       }
 
-      const list = await employeeService.list(session.organizationId);
+      const list = await employeeService.list(orgId);
 
       return createApiResponse({
         success: true,
@@ -48,7 +49,8 @@ export async function POST(req: NextRequest) {
   return logger.track("POST /api/employees", async () => {
     try {
       const session = await getSession();
-      if (!session || !session.organizationId) {
+      const orgId = getTenantId(session);
+      if (!session || !orgId) {
         return createApiResponse({
           success: false,
           message: "Unauthorized",
@@ -65,7 +67,7 @@ export async function POST(req: NextRequest) {
       }
 
       const body = await req.json();
-      const newEmployee = await employeeService.create(session.organizationId, body, session.userId);
+      const newEmployee = await employeeService.create(orgId, body, session.userId);
 
       return createApiResponse({
         success: true,

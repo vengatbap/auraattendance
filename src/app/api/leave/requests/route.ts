@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, getTenantId } from "@/lib/auth";
 import { LeaveService } from "@/modules/leave/service/leave.service";
 import { LeaveRequestRepository } from "@/modules/leave/repository/leave-request.repository";
 import { logger } from "@/lib/logger";
@@ -22,7 +22,8 @@ export async function GET(req: NextRequest) {
   return logger.track("GET /api/leave/requests", async () => {
     try {
       const session = await getSession();
-      if (!session || !session.organizationId) {
+      const orgId = getTenantId(session);
+      if (!session || !orgId) {
         return createApiResponse({ success: false, message: "Unauthorized", status: 401 });
       }
 
@@ -36,7 +37,7 @@ export async function GET(req: NextRequest) {
       const startDate = searchParams.get("startDate") || undefined;
       const endDate = searchParams.get("endDate") || undefined;
 
-      const requests = await LeaveRequestRepository.list(session.organizationId, {
+      const requests = await LeaveRequestRepository.list(orgId, {
         employeeId, status, startDate, endDate
       });
 
@@ -61,7 +62,8 @@ export async function POST(req: NextRequest) {
   return logger.track("POST /api/leave/requests", async () => {
     try {
       const session = await getSession();
-      if (!session || !session.organizationId) {
+      const orgId = getTenantId(session);
+      if (!session || !orgId) {
         return createApiResponse({ success: false, message: "Unauthorized", status: 401 });
       }
 
@@ -73,14 +75,15 @@ export async function POST(req: NextRequest) {
       const parsed = createLeaveRequestSchema.parse(body);
 
       const request = await LeaveService.submitRequest(
-        session.organizationId,
+        orgId,
         parsed.employeeId,
         parsed.leaveTypeId,
         parsed.startDate,
         parsed.endDate,
         parsed.requestedDays,
         parsed.reason,
-        parsed.attachmentUrl
+        parsed.attachmentUrl,
+        session.userId
       );
 
       return createApiResponse({

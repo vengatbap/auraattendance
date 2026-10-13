@@ -20,7 +20,8 @@ export class LeaveService {
     endDate: string,
     requestedDays: number,
     reason: string,
-    attachmentUrl?: string
+    attachmentUrl?: string,
+    userId?: string
   ): Promise<LeaveRequest> {
     // 1. Verify Dates
     if (startDate > endDate || requestedDays <= 0) {
@@ -41,215 +42,203 @@ export class LeaveService {
 
     const currentYear = new Date(startDate).getFullYear();
 
-    return await db.transaction(async (tx) => {
-      // 4. Load Balance
-      let balance = await LeaveBalanceRepository.findByEmployeeAndType(organizationId, employeeId, leaveTypeId, currentYear);
-      
-      if (!balance) {
-        // Auto-create zero-allocated balance if missing
-        balance = await LeaveBalanceRepository.create({
-          organizationId,
-          employeeId,
-          leaveTypeId,
-          year: currentYear,
-          allocatedDays: 0,
-          usedDays: 0,
-          pendingDays: 0,
-        });
-      }
-
-      // 5. Verify sufficient balance if it requires tracking and approval
-      if (leaveType.requiresApproval) {
-        const available = balance.allocatedDays + leaveType.maxCarryForward - balance.usedDays - balance.pendingDays;
-        if (available < requestedDays) {
-          throw new AppError("Insufficient leave balance.", 400, "LEAVE_INSUFFICIENT_BALANCE");
-        }
-      }
-
-      // 6. Update pending balance
-      const updatedBalance = await LeaveBalanceRepository.updateBalance(tx, balance.id, balance.version, {
-        pendingDays: balance.pendingDays + requestedDays
-      });
-
-      if (!updatedBalance) {
-        throw new AppError("Leave balance was modified concurrently.", 409, "CONCURRENCY_CONFLICT");
-      }
-
-      // 7. Create Request
-      const requestData: NewLeaveRequest = {
+    // 4. Load Balance
+    let balance = await LeaveBalanceRepository.findByEmployeeAndType(organizationId, employeeId, leaveTypeId, currentYear);
+    
+    if (!balance) {
+      // Auto-create zero-allocated balance if missing
+      balance = await LeaveBalanceRepository.create({
         organizationId,
         employeeId,
         leaveTypeId,
-        startDate,
-        endDate,
-        requestedDays,
-        reason,
-        attachmentUrl,
-        status: "PENDING",
-        submittedAt: new Date()
-      };
-
-      const [newRequest] = await tx.insert(leaveRequests).values(requestData).returning();
-
-      // Audit Log
-      await AuditService.log({
-        organizationId,
-        userId: employeeId, // usually submitted by the employee, or we could pass submittedBy
-        action: "LEAVE_SUBMITTED",
-        entity: "leave_requests",
-        entityId: newRequest.id,
-        details: { requestedDays, leaveTypeId }
+        year: currentYear,
+        allocatedDays: 0,
+        usedDays: 0,
+        pendingDays: 0,
       });
+    }
 
-      return newRequest;
+    // 5. Verify sufficient balance if it requires tracking and approval
+    if (leaveType.requiresApproval) {
+      const available = balance.allocatedDays + leaveType.maxCarryForward - balance.usedDays - balance.pendingDays;
+      if (available < requestedDays) {
+        throw new AppError("Insufficient leave balance.", 400, "LEAVE_INSUFFICIENT_BALANCE");
+      }
+    }
+
+    // 6. Update pending balance
+    const updatedBalance = await LeaveBalanceRepository.updateBalance(db as any, balance.id, balance.version, {
+      pendingDays: balance.pendingDays + requestedDays
     });
+
+    if (!updatedBalance) {
+      throw new AppError("Leave balance was modified concurrently.", 409, "CONCURRENCY_CONFLICT");
+    }
+
+    // 7. Create Request
+    const requestData: NewLeaveRequest = {
+      organizationId,
+      employeeId,
+      leaveTypeId,
+      startDate,
+      endDate,
+      requestedDays,
+      reason,
+      attachmentUrl,
+      status: "PENDING",
+      submittedAt: new Date()
+    };
+
+    const [newRequest] = await db.insert(leaveRequests).values(requestData).returning();
+
+    // Audit Log
+    await AuditService.log({
+      organizationId,
+      userId: userId ?? null,
+      action: "LEAVE_SUBMITTED",
+      entity: "leave_requests",
+      entityId: newRequest.id,
+      details: { requestedDays, leaveTypeId, employeeId }
+    });
+
+    return newRequest;
   }
 
   /**
    * Approve a leave request. Transitions state to APPROVED, decreases pendingDays, increases usedDays.
    */
   static async approveRequest(organizationId: string, requestId: string, approverId: string): Promise<LeaveRequest> {
-    return await db.transaction(async (tx) => {
-      // 1. Verify Request
-      const request = await LeaveRequestRepository.findById(requestId, organizationId);
-      if (!request) throw new AppError("Leave request not found.", 404, "LEAVE_REQUEST_NOT_FOUND");
-      if (request.status !== "PENDING") throw new AppError("Only PENDING requests can be approved.", 400, "LEAVE_INVALID_STATE");
+    // 1. Verify Request
+    const request = await LeaveRequestRepository.findById(requestId, organizationId);
+    if (!request) throw new AppError("Leave request not found.", 404, "LEAVE_REQUEST_NOT_FOUND");
+    if (request.status !== "PENDING") throw new AppError("Only PENDING requests can be approved.", 400, "LEAVE_INVALID_STATE");
 
-      const currentYear = new Date(request.startDate).getFullYear();
+    const currentYear = new Date(request.startDate).getFullYear();
 
-      // 2. Load Balance
-      const balance = await LeaveBalanceRepository.findByEmployeeAndType(organizationId, request.employeeId, request.leaveTypeId, currentYear);
-      if (!balance) throw new AppError("Balance record not found.", 404, "LEAVE_BALANCE_NOT_FOUND");
+    // 2. Load Balance
+    const balance = await LeaveBalanceRepository.findByEmployeeAndType(organizationId, request.employeeId, request.leaveTypeId, currentYear);
+    if (!balance) throw new AppError("Balance record not found.", 404, "LEAVE_BALANCE_NOT_FOUND");
 
-      // 3. Update Balance (pending -> used)
-      // Note: we don't strictly verify `available >= 0` here because it was verified at submission, 
-      // but in a strict system we might verify again.
-      const updatedBalance = await LeaveBalanceRepository.updateBalance(tx, balance.id, balance.version, {
-        pendingDays: Math.max(0, balance.pendingDays - request.requestedDays),
-        usedDays: balance.usedDays + request.requestedDays
-      });
-
-      if (!updatedBalance) {
-        throw new AppError("Leave balance was modified concurrently.", 409, "CONCURRENCY_CONFLICT");
-      }
-
-      // 4. Update Request Status
-      const updatedRequest = await LeaveRequestRepository.updateStatus(tx, request.id, organizationId, request.version, {
-        status: "APPROVED",
-        approvedAt: new Date(),
-        approvedBy: approverId
-      });
-
-      if (!updatedRequest) {
-        throw new AppError("Leave request was modified concurrently.", 409, "CONCURRENCY_CONFLICT");
-      }
-
-      // 5. Audit Log
-      await AuditService.log({
-        organizationId,
-        userId: approverId,
-        action: "LEAVE_APPROVED",
-        entity: "leave_requests",
-        entityId: request.id,
-        details: { requestedDays: request.requestedDays, leaveTypeId: request.leaveTypeId }
-      });
-
-      return updatedRequest;
+    // 3. Update Balance (pending -> used)
+    const updatedBalance = await LeaveBalanceRepository.updateBalance(db as any, balance.id, balance.version, {
+      pendingDays: Math.max(0, balance.pendingDays - request.requestedDays),
+      usedDays: balance.usedDays + request.requestedDays
     });
+
+    if (!updatedBalance) {
+      throw new AppError("Leave balance was modified concurrently.", 409, "CONCURRENCY_CONFLICT");
+    }
+
+    // 4. Update Request Status
+    const updatedRequest = await LeaveRequestRepository.updateStatus(db as any, request.id, organizationId, request.version, {
+      status: "APPROVED",
+      approvedAt: new Date(),
+      approvedBy: approverId
+    });
+
+    if (!updatedRequest) {
+      throw new AppError("Leave request was modified concurrently.", 409, "CONCURRENCY_CONFLICT");
+    }
+
+    // 5. Audit Log
+    await AuditService.log({
+      organizationId,
+      userId: approverId,
+      action: "LEAVE_APPROVED",
+      entity: "leave_requests",
+      entityId: request.id,
+      details: { requestedDays: request.requestedDays, leaveTypeId: request.leaveTypeId }
+    });
+
+    return updatedRequest;
   }
 
   /**
    * Reject a leave request. Transitions state to REJECTED, decreases pendingDays.
    */
   static async rejectRequest(organizationId: string, requestId: string, rejecterId: string, rejectionReason: string): Promise<LeaveRequest> {
-    return await db.transaction(async (tx) => {
-      const request = await LeaveRequestRepository.findById(requestId, organizationId);
-      if (!request) throw new AppError("Leave request not found.", 404, "LEAVE_REQUEST_NOT_FOUND");
-      if (request.status !== "PENDING") throw new AppError("Only PENDING requests can be rejected.", 400, "LEAVE_INVALID_STATE");
+    const request = await LeaveRequestRepository.findById(requestId, organizationId);
+    if (!request) throw new AppError("Leave request not found.", 404, "LEAVE_REQUEST_NOT_FOUND");
+    if (request.status !== "PENDING") throw new AppError("Only PENDING requests can be rejected.", 400, "LEAVE_INVALID_STATE");
 
-      const currentYear = new Date(request.startDate).getFullYear();
+    const currentYear = new Date(request.startDate).getFullYear();
 
-      const balance = await LeaveBalanceRepository.findByEmployeeAndType(organizationId, request.employeeId, request.leaveTypeId, currentYear);
-      if (!balance) throw new AppError("Balance record not found.", 404, "LEAVE_BALANCE_NOT_FOUND");
+    const balance = await LeaveBalanceRepository.findByEmployeeAndType(organizationId, request.employeeId, request.leaveTypeId, currentYear);
+    if (!balance) throw new AppError("Balance record not found.", 404, "LEAVE_BALANCE_NOT_FOUND");
 
-      const updatedBalance = await LeaveBalanceRepository.updateBalance(tx, balance.id, balance.version, {
-        pendingDays: Math.max(0, balance.pendingDays - request.requestedDays)
-      });
-
-      if (!updatedBalance) throw new AppError("Leave balance was modified concurrently.", 409, "CONCURRENCY_CONFLICT");
-
-      const updatedRequest = await LeaveRequestRepository.updateStatus(tx, request.id, organizationId, request.version, {
-        status: "REJECTED",
-        rejectedAt: new Date(),
-        rejectedBy: rejecterId,
-        rejectionReason
-      });
-
-      if (!updatedRequest) throw new AppError("Leave request was modified concurrently.", 409, "CONCURRENCY_CONFLICT");
-
-      await AuditService.log({
-        organizationId,
-        userId: rejecterId,
-        action: "LEAVE_REJECTED",
-        entity: "leave_requests",
-        entityId: request.id,
-        details: { rejectionReason }
-      });
-
-      return updatedRequest;
+    const updatedBalance = await LeaveBalanceRepository.updateBalance(db as any, balance.id, balance.version, {
+      pendingDays: Math.max(0, balance.pendingDays - request.requestedDays)
     });
+
+    if (!updatedBalance) throw new AppError("Leave balance was modified concurrently.", 409, "CONCURRENCY_CONFLICT");
+
+    const updatedRequest = await LeaveRequestRepository.updateStatus(db as any, request.id, organizationId, request.version, {
+      status: "REJECTED",
+      rejectedAt: new Date(),
+      rejectedBy: rejecterId,
+      rejectionReason
+    });
+
+    if (!updatedRequest) throw new AppError("Leave request was modified concurrently.", 409, "CONCURRENCY_CONFLICT");
+
+    await AuditService.log({
+      organizationId,
+      userId: rejecterId,
+      action: "LEAVE_REJECTED",
+      entity: "leave_requests",
+      entityId: request.id,
+      details: { rejectionReason }
+    });
+
+    return updatedRequest;
   }
 
   /**
    * Cancel a leave request. Transitions state to CANCELLED, restores balance depending on previous state.
    */
   static async cancelRequest(organizationId: string, requestId: string, cancellerId: string): Promise<LeaveRequest> {
-    return await db.transaction(async (tx) => {
-      const request = await LeaveRequestRepository.findById(requestId, organizationId);
-      if (!request) throw new AppError("Leave request not found.", 404, "LEAVE_REQUEST_NOT_FOUND");
-      if (request.status !== "PENDING" && request.status !== "APPROVED") {
-        throw new AppError("Only PENDING or APPROVED requests can be cancelled.", 400, "LEAVE_INVALID_STATE");
-      }
+    const request = await LeaveRequestRepository.findById(requestId, organizationId);
+    if (!request) throw new AppError("Leave request not found.", 404, "LEAVE_REQUEST_NOT_FOUND");
+    if (request.status !== "PENDING" && request.status !== "APPROVED") {
+      throw new AppError("Only PENDING or APPROVED requests can be cancelled.", 400, "LEAVE_INVALID_STATE");
+    }
 
-      const currentYear = new Date(request.startDate).getFullYear();
-      const balance = await LeaveBalanceRepository.findByEmployeeAndType(organizationId, request.employeeId, request.leaveTypeId, currentYear);
-      if (!balance) throw new AppError("Balance record not found.", 404, "LEAVE_BALANCE_NOT_FOUND");
+    const currentYear = new Date(request.startDate).getFullYear();
+    const balance = await LeaveBalanceRepository.findByEmployeeAndType(organizationId, request.employeeId, request.leaveTypeId, currentYear);
+    if (!balance) throw new AppError("Balance record not found.", 404, "LEAVE_BALANCE_NOT_FOUND");
 
-      let newPendingDays = balance.pendingDays;
-      let newUsedDays = balance.usedDays;
+    let newPendingDays = balance.pendingDays;
+    let newUsedDays = balance.usedDays;
 
-      if (request.status === "PENDING") {
-        newPendingDays = Math.max(0, balance.pendingDays - request.requestedDays);
-      } else if (request.status === "APPROVED") {
-        newUsedDays = Math.max(0, balance.usedDays - request.requestedDays);
-      }
+    if (request.status === "PENDING") {
+      newPendingDays = Math.max(0, balance.pendingDays - request.requestedDays);
+    } else if (request.status === "APPROVED") {
+      newUsedDays = Math.max(0, balance.usedDays - request.requestedDays);
+    }
 
-      const updatedBalance = await LeaveBalanceRepository.updateBalance(tx, balance.id, balance.version, {
-        pendingDays: newPendingDays,
-        usedDays: newUsedDays
-      });
-
-      if (!updatedBalance) throw new AppError("Leave balance was modified concurrently.", 409, "CONCURRENCY_CONFLICT");
-
-      const updatedRequest = await LeaveRequestRepository.updateStatus(tx, request.id, organizationId, request.version, {
-        status: "CANCELLED",
-        cancelledAt: new Date(),
-        cancelledBy: cancellerId
-      });
-
-      if (!updatedRequest) throw new AppError("Leave request was modified concurrently.", 409, "CONCURRENCY_CONFLICT");
-
-      await AuditService.log({
-        organizationId,
-        userId: cancellerId,
-        action: "LEAVE_CANCELLED",
-        entity: "leave_requests",
-        entityId: request.id,
-        details: { previousStatus: request.status }
-      });
-
-      return updatedRequest;
+    const updatedBalance = await LeaveBalanceRepository.updateBalance(db as any, balance.id, balance.version, {
+      pendingDays: newPendingDays,
+      usedDays: newUsedDays
     });
+
+    if (!updatedBalance) throw new AppError("Leave balance was modified concurrently.", 409, "CONCURRENCY_CONFLICT");
+
+    const updatedRequest = await LeaveRequestRepository.updateStatus(db as any, request.id, organizationId, request.version, {
+      status: "CANCELLED"
+    });
+
+    if (!updatedRequest) throw new AppError("Leave request was modified concurrently.", 409, "CONCURRENCY_CONFLICT");
+
+    await AuditService.log({
+      organizationId,
+      userId: cancellerId,
+      action: "LEAVE_CANCELLED",
+      entity: "leave_requests",
+      entityId: request.id,
+      details: { previousStatus: request.status }
+    });
+
+    return updatedRequest;
   }
 
   /**

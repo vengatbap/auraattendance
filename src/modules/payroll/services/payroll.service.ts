@@ -34,12 +34,12 @@ export class PayrollService {
    */
   static async createRun(organizationId: string, periodId: string, userId: string) {
     const period = await PayrollPeriodRepository.findById(periodId, organizationId);
-    if (!period) throw new AppError("PERIOD_NOT_FOUND", 404, "Payroll period not found");
+    if (!period) throw new AppError("Payroll period not found", 404, "PERIOD_NOT_FOUND");
 
     const existingRun = await PayrollRunRepository.findByPeriodId(periodId, organizationId);
     if (existingRun) {
       if (existingRun.status !== "DRAFT" && existingRun.status !== "CANCELLED") {
-        throw new AppError("RUN_EXISTS", 400, "An active payroll run already exists for this period");
+        throw new AppError("An active payroll run already exists for this period", 400, "RUN_EXISTS");
       }
       return existingRun;
     }
@@ -73,8 +73,8 @@ export class PayrollService {
    */
   static async approveRun(organizationId: string, runId: string, userId: string) {
     const run = await PayrollRunRepository.findById(runId, organizationId);
-    if (!run) throw new AppError("RUN_NOT_FOUND", 404, "Run not found");
-    if (run.status !== "REVIEW") throw new AppError("INVALID_STATE", 400, "Only REVIEW runs can be approved");
+    if (!run) throw new AppError("Run not found", 404, "RUN_NOT_FOUND");
+    if (run.status !== "REVIEW") throw new AppError("Only REVIEW runs can be approved", 400, "INVALID_STATE");
 
     const updated = await PayrollRunRepository.updateStatus(runId, organizationId, run.version, "APPROVED", userId);
     
@@ -100,8 +100,8 @@ export class PayrollService {
    */
   static async payRun(organizationId: string, runId: string, userId: string) {
     const run = await PayrollRunRepository.findById(runId, organizationId);
-    if (!run) throw new AppError("RUN_NOT_FOUND", 404, "Run not found");
-    if (run.status !== "APPROVED") throw new AppError("INVALID_STATE", 400, "Only APPROVED runs can be marked as PAID");
+    if (!run) throw new AppError("Run not found", 404, "RUN_NOT_FOUND");
+    if (run.status !== "APPROVED") throw new AppError("Only APPROVED runs can be marked as PAID", 400, "INVALID_STATE");
 
     const updated = await PayrollRunRepository.updateStatus(runId, organizationId, run.version, "PAID", userId);
     
@@ -125,66 +125,64 @@ export class PayrollService {
    * Lock a payroll run and generate payslips
    */
   static async lockRun(organizationId: string, runId: string, userId: string) {
-    return await db.transaction(async (tx) => {
-      const run = await PayrollRunRepository.findById(runId, organizationId);
-      if (!run) throw new AppError("RUN_NOT_FOUND", 404, "Run not found");
-      
-      if (run.status !== "PAID") {
-        throw new AppError("INVALID_STATE", 400, "Only PAID runs can be locked");
-      }
+    const run = await PayrollRunRepository.findById(runId, organizationId);
+    if (!run) throw new AppError("Run not found", 404, "RUN_NOT_FOUND");
+    
+    if (run.status !== "PAID") {
+      throw new AppError("Only PAID runs can be locked", 400, "INVALID_STATE");
+    }
 
-      const period = await PayrollPeriodRepository.findById(run.payrollPeriodId, organizationId);
-      if (!period) throw new AppError("PERIOD_NOT_FOUND", 404, "Period not found");
+    const period = await PayrollPeriodRepository.findById(run.payrollPeriodId, organizationId);
+    if (!period) throw new AppError("Period not found", 404, "PERIOD_NOT_FOUND");
 
-      // 1. Mark run as LOCKED
-      const updatedRun = await PayrollRunRepository.updateStatus(runId, organizationId, run.version, "LOCKED", userId);
-      
-      // 2. Mark period as LOCKED
-      await PayrollPeriodRepository.updateStatus(period.id, organizationId, period.version, "LOCKED", userId);
+    // 1. Mark run as LOCKED
+    const updatedRun = await PayrollRunRepository.updateStatus(runId, organizationId, run.version, "LOCKED", userId);
+    
+    // 2. Mark period as LOCKED
+    await PayrollPeriodRepository.updateStatus(period.id, organizationId, period.version, "LOCKED", userId);
 
-      // 3. Generate Payslips
-      const items = await PayrollItemRepository.findByRunId(organizationId, runId);
-      
-      const payslipsData = items.map((item, index) => {
-        // Payslip number format: PS-YYYYMM-RUNID-INDEX
-        const yearMonth = period.periodStart.replace(/-/g, "").substring(0, 6);
-        const seq = (index + 1).toString().padStart(4, "0");
-        const payslipNumber = `PS-${yearMonth}-${seq}`;
+    // 3. Generate Payslips
+    const items = await PayrollItemRepository.findByRunId(organizationId, runId);
+    
+    const payslipsData = items.map((item, index) => {
+      // Payslip number format: PS-YYYYMM-RUNID-INDEX
+      const yearMonth = period.periodStart.replace(/-/g, "").substring(0, 6);
+      const seq = (index + 1).toString().padStart(4, "0");
+      const payslipNumber = `PS-${yearMonth}-${seq}`;
 
-        // Get currency from calculation snapshot
-        const snapshot = item.calculationSnapshot as unknown as { salary?: { currency: string } };
-        const currency = snapshot?.salary?.currency || "USD";
+      // Get currency from calculation snapshot
+      const snapshot = item.calculationSnapshot as unknown as { salary?: { currency: string } };
+      const currency = snapshot?.salary?.currency || "USD";
 
-        return {
-          organizationId,
-          payrollRunId: runId,
-          employeeId: item.employeeId,
-          payrollItemId: item.id,
-          payslipNumber,
-          periodStart: period.periodStart,
-          periodEnd: period.periodEnd,
-          grossPay: item.grossPay,
-          totalDeductions: item.deductionAmount, // Adding unpaid absence? The engine already factored unpaid into gross/net. But let's combine deductions for display.
-          netPay: item.netPay,
-          currency,
-          createdBy: userId,
-        };
-      });
-
-      await PayslipRepository.insertBatch(organizationId, runId, payslipsData);
-
-      await AuditService.log({
+      return {
         organizationId,
-        userId,
-        action: "PAYROLL_RUN_LOCKED",
-        entity: "payroll_runs",
-        entityId: runId,
-        details: {
-          payslipsGenerated: payslipsData.length
-        }
-      });
-
-      return updatedRun;
+        payrollRunId: runId,
+        employeeId: item.employeeId,
+        payrollItemId: item.id,
+        payslipNumber,
+        periodStart: period.periodStart,
+        periodEnd: period.periodEnd,
+        grossPay: item.grossPay,
+        totalDeductions: item.deductionAmount,
+        netPay: item.netPay,
+        currency,
+        createdBy: userId,
+      };
     });
+
+    await PayslipRepository.insertBatch(organizationId, runId, payslipsData);
+
+    await AuditService.log({
+      organizationId,
+      userId,
+      action: "PAYROLL_RUN_LOCKED",
+      entity: "payroll_runs",
+      entityId: runId,
+      details: {
+        payslipsGenerated: payslipsData.length
+      }
+    });
+
+    return updatedRun;
   }
 }

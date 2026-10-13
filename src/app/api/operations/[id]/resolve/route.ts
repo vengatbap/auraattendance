@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, getTenantId } from "@/lib/auth";
 import { OperationsService } from "@/modules/operations/service/operations.service";
 import { PermissionService } from "@/lib/rbac";
 import { createApiResponse } from "@/lib/api-response";
@@ -10,7 +10,8 @@ export async function POST(
 ) {
   try {
     const session = await getSession();
-    if (!session || !session.organizationId || !session.userId) {
+    const orgId = getTenantId(session);
+    if (!session || !orgId || !session.userId) {
       return createApiResponse({ success: false, message: "Unauthorized", status: 401 });
     }
     if (PermissionService.cannot(session, "attendance.adjust")) {
@@ -26,7 +27,7 @@ export async function POST(
     }
 
     await OperationsService.resolve(
-      session.organizationId,
+      orgId,
       session.userId,
       id,
       resolutionType,
@@ -36,6 +37,7 @@ export async function POST(
 
     return createApiResponse({ success: true, message: "Resolved successfully" });
   } catch (error) {
+    console.error("POST /api/operations/[id]/resolve error:", error);
     return createApiResponse({ success: false, message: "Internal Error", status: 500 });
   }
 }

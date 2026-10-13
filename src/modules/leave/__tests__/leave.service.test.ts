@@ -1,3 +1,4 @@
+import { describe, it } from "vitest";
 import { db } from "@/db";
 import { organizations, employees, users, leaveTypes, leaveBalances, leaveRequests } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
@@ -5,6 +6,12 @@ import { LeaveService } from "../service/leave.service";
 import { LeaveBalanceRepository } from "../repository/leave-balance.repository";
 import { AppError } from "@/lib/errors";
 import { LeaveTypeRepository } from "../repository/leave-type.repository";
+
+describe("Leave Engine Automated Suite", () => {
+  it("runs all leave service assertions", async () => {
+    await runTests();
+  }, 120000);
+});
 
 async function runTests() {
   console.log("=== STARTING LEAVE ENGINE AUTOMATED TEST SUITE ===");
@@ -27,9 +34,10 @@ async function runTests() {
     subscriptionPlan: "standard",
   }).returning();
 
+  const randSuffix = Math.floor(Math.random() * 100000);
   const [adminA] = await db.insert(users).values({
     organizationId: orgA.id,
-    email: `admin-a-${Date.now()}@example.com`,
+    email: `admin-a-${Date.now()}-${randSuffix}@example.com`,
     name: "Admin A",
     passwordHash: "dummy-hash",
     role: "admin",
@@ -37,16 +45,16 @@ async function runTests() {
 
   const [empA] = await db.insert(employees).values({
     organizationId: orgA.id,
-    employeeCode: `EMP-A-${Date.now()}`,
-    governmentId: `GOV-A-${Date.now()}`,
+    employeeCode: `EMP-A-${Date.now()}-${randSuffix}`,
+    governmentId: `GOV-A-${Date.now()}-${randSuffix}`,
     name: "Employee A01",
     status: "active",
   }).returning();
 
   const [empB] = await db.insert(employees).values({
     organizationId: orgB.id,
-    employeeCode: `EMP-B-${Date.now()}`,
-    governmentId: `GOV-B-${Date.now()}`,
+    employeeCode: `EMP-B-${Date.now()}-${randSuffix}`,
+    governmentId: `GOV-B-${Date.now()}-${randSuffix}`,
     name: "Employee B01",
     status: "active",
   }).returning();
@@ -232,7 +240,7 @@ async function runTests() {
   } catch (error) {
     console.error("=== TEST SUITE FAILED ===");
     console.error(error);
-    process.exit(1);
+    throw error;
   } finally {
     // Cleanup test data safely
     await db.delete(leaveRequests).where(eq(leaveRequests.organizationId, orgA.id));
@@ -246,6 +254,4 @@ async function runTests() {
     console.log("=== Cleanup completed cleanly ===");
   }
 }
-
-runTests();
 

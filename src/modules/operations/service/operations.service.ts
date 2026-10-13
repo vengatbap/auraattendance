@@ -1,6 +1,6 @@
 import { db } from "@/db";
-import { attendanceLogs, attendanceEvents, users, employees, faceProfiles, attendanceAdjustments, auditLogs, organizations } from "@/db/schema";
-import { and, isNull, eq, sql, gt, lt, ne, desc, isNotNull, inArray } from "drizzle-orm";
+import { attendanceLogs, attendanceAdjustments, auditLogs } from "@/db/schema";
+import { and, eq, desc, inArray } from "drizzle-orm";
 
 export enum AnomalyType {
   MISSING_CHECKOUT = "MISSING_CHECKOUT",
@@ -11,9 +11,24 @@ export enum AnomalyType {
   FACE_NOT_REGISTERED = "FACE_NOT_REGISTERED",
 }
 
+export interface AnomalyItem {
+  id: string;
+  type: AnomalyType;
+  title: string;
+  description: string;
+  timestamp: Date | string;
+  severity: "high" | "medium" | "low";
+  employeeName: string;
+  employeeCode: string;
+  siteName: string;
+  actions: string[];
+  suggestedCheckOut?: string;
+  data: Record<string, unknown>;
+}
+
 export class OperationsService {
   static async getAnomalies(organizationId: string) {
-    const anomalies: any[] = [];
+    const anomalies: AnomalyItem[] = [];
     const todayStr = new Date().toISOString().split("T")[0];
 
     const logs = await db.query.attendanceLogs.findMany({
@@ -24,11 +39,11 @@ export class OperationsService {
     });
 
     const logIds = logs.map(l => l.id);
-    let resolvedLogIds = new Set<string>();
+    const resolvedLogIds = new Set<string>();
     
     if (logIds.length > 0) {
       const adjustments = await db.query.attendanceAdjustments.findMany({
-        where: sql`${attendanceAdjustments.attendanceLogId} IN ${logIds}`,
+        where: inArray(attendanceAdjustments.attendanceLogId, logIds),
       });
       adjustments.forEach(adj => resolvedLogIds.add(adj.attendanceLogId));
     }
@@ -36,8 +51,8 @@ export class OperationsService {
     for (const log of logs) {
       if (resolvedLogIds.has(log.id)) continue;
 
-      const dateStr = typeof log.date === "string" ? log.date : (log.date as any).toISOString().split("T")[0];
-      const flags = log.flags as string[] || [];
+      const dateStr = typeof log.date === "string" ? log.date : (log.date instanceof Date ? log.date.toISOString().split("T")[0] : String(log.date));
+      const flags = (log.flags as string[]) || [];
 
       // MISSING_CHECKOUT
       if (log.checkInTime && !log.checkOutTime && dateStr < todayStr) {
@@ -139,7 +154,7 @@ export class OperationsService {
     id: string, 
     resolutionType: string, 
     reason: string,
-    extraData?: any
+    extraData?: Record<string, unknown>
   ) {
     const logId = id.split("_").slice(1).join("_");
     
@@ -163,11 +178,11 @@ export class OperationsService {
     if (!log) throw new Error("Log not found");
 
     const currentVersion = log.version ?? 1;
-    let updateData: any = {};
-    let afterState: any = { ...log };
+    const updateData: Record<string, unknown> = {};
+    const afterState: Record<string, unknown> = { ...log };
 
     if (id.startsWith("MC_") && resolutionType === "suggest_checkout") {
-      updateData.checkOutTime = new Date(extraData.checkOutTime);
+      updateData.checkOutTime = new Date(extraData?.checkOutTime as string);
       updateData.updatedAt = new Date();
       updateData.authenticationMethod = "SUPERVISOR";
       updateData.performedBy = userId;
@@ -176,7 +191,7 @@ export class OperationsService {
       updateData.updatedAt = new Date();
       updateData.authenticationMethod = "SUPERVISOR";
       updateData.performedBy = userId;
-      if (extraData.status) {
+      if (extraData?.status) {
          updateData.status = extraData.status;
          afterState.status = extraData.status;
       }

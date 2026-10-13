@@ -1,4 +1,4 @@
-import { getSession } from "@/lib/auth";
+import { getSession, getTenantId } from "@/lib/auth";
 import { departmentService } from "@/modules/departments/service/department.service";
 import { logger } from "@/lib/logger";
 import { PermissionService } from "@/lib/rbac";
@@ -8,7 +8,8 @@ export async function GET() {
   return logger.track("GET /api/departments", async () => {
     try {
       const session = await getSession();
-      if (!session || !session.organizationId) {
+      const orgId = getTenantId(session);
+      if (!session || !orgId) {
         return createApiResponse({
           success: false,
           message: "Unauthorized",
@@ -24,7 +25,7 @@ export async function GET() {
         });
       }
 
-      const list = await departmentService.list(session.organizationId);
+      const list = await departmentService.list(orgId);
       return createApiResponse({
         success: true,
         message: "Departments retrieved successfully",
@@ -46,7 +47,8 @@ export async function POST(req: Request) {
   return logger.track("POST /api/departments", async () => {
     try {
       const session = await getSession();
-      if (!session || !session.organizationId) {
+      const orgId = getTenantId(session);
+      if (!session || !orgId) {
         return createApiResponse({
           success: false,
           message: "Unauthorized",
@@ -63,7 +65,7 @@ export async function POST(req: Request) {
       }
 
       const body = await req.json();
-      const newDept = await departmentService.create(session.organizationId, body, session.userId);
+      const newDept = await departmentService.create(orgId, body, session.userId);
 
       return createApiResponse({
         success: true,

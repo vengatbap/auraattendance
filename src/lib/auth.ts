@@ -16,11 +16,15 @@ export async function encrypt(payload: SessionPayload) {
     .sign(key);
 }
 
-export async function decrypt(input: string): Promise<SessionPayload> {
-  const { payload } = await jwtVerify(input, key, {
-    algorithms: ["HS256"],
-  });
-  return payload as unknown as SessionPayload;
+export async function decrypt(input: string): Promise<SessionPayload | null> {
+  try {
+    const { payload } = await jwtVerify(input, key, {
+      algorithms: ["HS256"],
+    });
+    return payload as unknown as SessionPayload;
+  } catch {
+    return null;
+  }
 }
 
 export async function loginSession(
@@ -54,9 +58,17 @@ export async function getSession() {
   if (!session) return null;
   try {
     return await decrypt(session);
-  } catch (error) {
+  } catch {
     return null;
   }
+}
+
+export function getTenantId(session: SessionPayload | null | undefined): string | null {
+  if (!session) return null;
+  if (session.isPlatformUser && session.supportTenantId) {
+    return session.supportTenantId;
+  }
+  return session.organizationId || null;
 }
 
 export async function requireTenantContext() {

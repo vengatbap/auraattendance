@@ -3,7 +3,7 @@ import { db } from "@/db";
 import { attendanceAdjustments, attendanceLogs, auditLogs, employees } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
-import { getSession } from "@/lib/auth";
+import { getSession, getTenantId } from "@/lib/auth";
 import { PermissionService } from "@/lib/rbac";
 import { createApiResponse } from "@/lib/api-response";
 import { FeatureService, FeatureRegistry } from "@/lib/features";
@@ -21,7 +21,8 @@ export async function POST(req: NextRequest) {
   try {
     // 1. Verify authentication
     const session = await getSession();
-    if (!session || !session.organizationId) {
+    const orgId = getTenantId(session);
+    if (!session || !orgId) {
       return createApiResponse({
         success: false,
         message: "Unauthorized",
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 3. Verify feature flag
-    const isFeatureEnabled = await FeatureService.isEnabled(session.organizationId, FeatureRegistry.ADJUSTMENTS);
+    const isFeatureEnabled = await FeatureService.isEnabled(orgId, FeatureRegistry.ADJUSTMENTS);
     if (!isFeatureEnabled) {
       return createApiResponse({
         success: false,
@@ -69,7 +70,7 @@ export async function POST(req: NextRequest) {
       .where(
         and(
           eq(attendanceLogs.id, attendanceLogId),
-          eq(attendanceLogs.organizationId, session.organizationId)
+          eq(attendanceLogs.organizationId, orgId)
         )
       );
 

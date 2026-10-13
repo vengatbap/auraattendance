@@ -16,13 +16,13 @@ export class PayrollEngine {
    */
   static async calculateRun(organizationId: string, runId: string, userId: string) {
     const run = await PayrollRunRepository.findById(runId, organizationId);
-    if (!run) throw new AppError("RUN_NOT_FOUND", 404, "Payroll run not found.");
+    if (!run) throw new AppError("Payroll run not found.", 404, "RUN_NOT_FOUND");
     if (run.status !== "DRAFT" && run.status !== "CALCULATING") {
-      throw new AppError("INVALID_RUN_STATE", 400, "Can only calculate DRAFT or CALCULATING runs.");
+      throw new AppError("Can only calculate DRAFT or CALCULATING runs.", 400, "INVALID_RUN_STATE");
     }
 
     const period = await PayrollPeriodRepository.findById(run.payrollPeriodId, organizationId);
-    if (!period) throw new AppError("PERIOD_NOT_FOUND", 404, "Payroll period not found.");
+    if (!period) throw new AppError("Payroll period not found.", 404, "PERIOD_NOT_FOUND");
 
     // Mark as calculating
     await PayrollRunRepository.updateStatus(runId, organizationId, run.version, "CALCULATING", userId);
@@ -38,7 +38,7 @@ export class PayrollEngine {
       });
 
       if (allSalaries.length === 0) {
-        throw new AppError("NO_EMPLOYEES", 400, "No active salary configurations found.");
+        throw new AppError("No active salary configurations found.", 400, "NO_EMPLOYEES");
       }
 
       // 2. Fetch all employees to get valid ones
@@ -146,11 +146,9 @@ export class PayrollEngine {
         createdBy: userId,
       }));
 
-      // Start transaction to clear old items and insert new ones
-      await db.transaction(async (tx) => {
-        await PayrollItemRepository.deleteByRunId(organizationId, runId);
-        await PayrollItemRepository.insertBatch(organizationId, runId, itemsToInsert);
-      });
+      // Clear old items and insert new ones
+      await PayrollItemRepository.deleteByRunId(organizationId, runId);
+      await PayrollItemRepository.insertBatch(organizationId, runId, itemsToInsert);
 
       // Aggregate totals
       let totalGross = "0";
@@ -176,9 +174,10 @@ export class PayrollEngine {
         });
 
         // Set status to REVIEW (which means calculation done, ready for review)
-        await PayrollRunRepository.updateStatus(runId, organizationId, runAfterCalc.version, "REVIEW", userId);
+        return await PayrollRunRepository.updateStatus(runId, organizationId, runAfterCalc.version, "REVIEW", userId);
       }
 
+      return await PayrollRunRepository.findById(runId, organizationId);
     } catch (error) {
       // Revert status to DRAFT on error if it was calculating
       const currentRun = await PayrollRunRepository.findById(runId, organizationId);
@@ -193,30 +192,31 @@ export class PayrollEngine {
     // 1. Calculate Daily Rate
     const dailyRate = MoneyService.divide(ctx.salary.basicSalary, ctx.salary.workingDaysPerPeriod);
 
-    // 2. Unpaid Absences = Absent Days - Approved Leave (we assume approved leave is already typed into paid/unpaid)
-    // Actually, Attendance gives pure 'absentDays'. Leave gives 'approvedLeaveDays'.
-    // Pure absent days that are NOT covered by approved leave = missing days.
-    // Let's use simple unpaid absence logic: absent days that are not paid leave.
-    const unpaidDays = Math.max(0, ctx.attendance.absentDays - ctx.leave.paidLeaveDays) + ctx.leave.unpaidLeaveDays;
+    // 2. Unpaid Absences = Absent Days - Paid Leave
+    const unpaidDays = Math.max(0, ctx.attendance.absentDays - ctx.leave.paidLeaveDays);
     
     if (unpaidDays > 0) {
       ctx.unpaidAbsenceAmount = MoneyService.multiply(dailyRate, unpaidDays);
+    } else {
+      ctx.unpaidAbsenceAmount = "0.00";
     }
 
     // 3. Overtime
     if (MoneyService.isGreaterThanZero(ctx.overtimeHours) && MoneyService.isGreaterThanZero(ctx.salary.overtimeRate)) {
       ctx.overtimeAmount = MoneyService.multiply(ctx.salary.overtimeRate, ctx.overtimeHours);
+    } else {
+      ctx.overtimeAmount = "0.00";
     }
 
     // 4. Fixed Allowances
-    let totalAllowances = "0";
+    let totalAllowances = "0.00";
     for (const allowance of ctx.salary.fixedAllowances) {
       totalAllowances = MoneyService.add(totalAllowances, allowance.amount);
     }
     ctx.allowanceAmount = totalAllowances;
 
     // 5. Fixed Deductions
-    let totalDeductions = "0";
+    let totalDeductions = "0.00";
     for (const deduction of ctx.salary.fixedDeductions) {
       totalDeductions = MoneyService.add(totalDeductions, deduction.amount);
     }
@@ -227,12 +227,12 @@ export class PayrollEngine {
     gross = MoneyService.add(gross, ctx.overtimeAmount);
     gross = MoneyService.subtract(gross, ctx.unpaidAbsenceAmount);
     // Floor gross at 0
-    if (gross.startsWith("-")) gross = "0";
+    if (gross.startsWith("-")) gross = "0.00";
     ctx.grossPay = gross;
 
     // 7. Net Pay = Gross - Deductions
     let net = MoneyService.subtract(ctx.grossPay, ctx.deductionAmount);
-    if (net.startsWith("-")) net = "0"; // Floor net at 0
+    if (net.startsWith("-")) net = "0.00"; // Floor net at 0
     ctx.netPay = net;
 
     // 8. Snapshot creation

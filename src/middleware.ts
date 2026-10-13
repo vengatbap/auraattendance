@@ -19,6 +19,7 @@ const protectedApiRoutes = [
   "/api/admins",
   "/api/dashboard",
   "/api/employees",
+  "/api/departments",
   "/api/sites",
   "/api/reports",
   "/api/settings",
@@ -27,6 +28,9 @@ const protectedApiRoutes = [
   "/api/faces/register",
   "/api/auth/me",
   "/api/admin", // Protect platform APIs
+  "/api/leave",
+  "/api/payroll",
+  "/api/operations",
 ];
 
 const publicApiRoutes = [

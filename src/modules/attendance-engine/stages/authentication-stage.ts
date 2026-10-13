@@ -74,6 +74,7 @@ export class AuthenticationStage implements PunchStage {
     else if (method === "PIN") {
       if (context.input.isOffline) {
         context.outcome = "REJECTED";
+        context.flags.push("OFFLINE_PIN_PROHIBITED" as any);
         context.warnings.push("Offline PIN authentication is not supported.");
         return;
       }
@@ -84,7 +85,7 @@ export class AuthenticationStage implements PunchStage {
         return;
       }
 
-      if (!context.input.employeeCode || !context.input.pin) {
+      if ((!context.input.employeeCode && !context.input.employeeId) || !context.input.pin) {
         context.outcome = "REJECTED";
         context.warnings.push("Missing employee code or PIN.");
         return;
@@ -92,7 +93,7 @@ export class AuthenticationStage implements PunchStage {
 
       // We need employeeId to authenticate PIN
       let employeeId = context.input.employeeId;
-      if (!employeeId) {
+      if (!employeeId && context.input.employeeCode) {
          // Lookup by employeeCode
          const employee = await AttendanceEngineRepository.findEmployeeByCode(orgId, context.input.employeeCode);
          if (!employee) {
